@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sleep Tracker Data</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    img { max-width: 100%; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h2>Sleep Data Viewer</h2>
+  <div id="plots"></div>
+  <img id="preview" src="" alt="Image preview" hidden />
+
+  <script>
+    fetch('/data')
+      .then(r => r.json())
+      .then(data => {
+        const time = data.timestamp;
+        const temp = { x: time, y: data.temperature, name: "Temp (°C)", type: "scatter" };
+        const co2 = { x: time, y: data.co2, name: "CO2 (ppm)", type: "scatter" };
+        const hum = { x: time, y: data.humidity, name: "Humidity (%)", type: "scatter" };
+
+        const layout = {
+          title: "Sensor Readings",
+          height: 600,
+          xaxis: { title: "Time (s)" },
+          yaxis: { title: "Value" }
+        };
+
+        Plotly.newPlot("plots", [temp, co2, hum], layout);
+
+        document.getElementById("plots").on("plotly_click", (e) => {
+          const index = e.points[0].pointIndex;
+          const path = data.image_paths[index];
+          if (!path) return;
+          fetch(`/preview?path=${encodeURIComponent(path)}`)
+            .then(res => res.blob())
+            .then(blob => {
+              const url = URL.createObjectURL(blob);
+              document.getElementById("preview").src = url;
+              document.getElementById("preview").hidden = false;
+            });
+        });
+      });
+  </script>
+</body>
+</html>
