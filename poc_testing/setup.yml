@@ -1,0 +1,40 @@
+---
+- name: Set up Raspberry Pi dependencies
+  hosts: local
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+      become: yes
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - python3.11
+          - python3.11-venv
+          - python3.11-dev
+          - python3-dev
+          - pip
+          - pipx
+          - build-essential
+        state: present
+      become: yes
+
+    - name: Ensure pipx binary path is in PATH
+      ansible.builtin.shell: pipx ensurepath
+      args:
+        executable: /bin/bash
+      register: pipx_path_output
+      changed_when: "'added' in pipx_path_output.stdout or 'Updated' in pipx_path_output.stdout"
+
+
+    - name: Source bashrc if pipx path updated
+      ansible.builtin.command: source ~/.bashrc
+      when: "'added' in pipx_path_output.stdout or 'Updated' in pipx_path_output.stdout"
+      changed_when: false
+
+    - name: Install Poetry using pipx
+      ansible.builtin.shell: pipx install poetry
+      args:
+        executable: /bin/bash
+      changed_when: "'poetry' not in ansible_facts['env']['PATH']"
