@@ -17,6 +17,53 @@ pub struct SleepData {
     humidity: f32,
     image_path: String,
 }
+impl SleepData {
+    pub fn builder(timestamp: u64) -> SleepDataBuilder {
+        SleepDataBuilder::new(timestamp)
+    }
+}
+
+pub struct SleepDataBuilder {
+    timestamp: u64,
+    temperature: Option<f32>,
+    pressure: Option<f32>,
+    humidity: Option<f32>,
+    image_path: Option<String>,
+}
+
+impl SleepDataBuilder {
+    pub fn new(timestamp: u64) -> Self {
+        Self {
+            timestamp,
+            temperature: None,
+            pressure: None,
+            humidity: None,
+            image_path: None,
+        }
+    }
+
+    pub fn with_bme280(mut self, measurements: bme280::Measurements<linux_embedded_hal::I2CError>) -> Self {
+        self.temperature = Some(measurements.temperature);
+        self.pressure = Some(measurements.pressure);
+        self.humidity = Some(measurements.humidity);
+        self
+    }
+
+    pub fn with_image_path(mut self, image_path: String) -> Self {
+        self.image_path = Some(image_path);
+        self
+    }
+
+    pub fn build(self) -> SleepData {
+        SleepData {
+            timestamp: self.timestamp,
+            temperature: self.temperature.unwrap_or(f32::NAN),
+            pressure: self.pressure.unwrap_or(f32::NAN),
+            humidity: self.humidity.unwrap_or(f32::NAN),
+            image_path: self.image_path.unwrap_or_default(),
+        }
+    }
+}
 
 pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     let cancel = CancellationToken::new();
@@ -41,8 +88,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
             info!("Sensor polling completed.");
         },
         _ = clonced_cancel.cancelled() => {
-            info!("Recevied shutdown signal. Flushing final data...");
-            data_logger.flush().expect("Final flush failed."); // Final flush
+            info!("Recevied shutdown signal.");
         }
     }
 

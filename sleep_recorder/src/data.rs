@@ -17,6 +17,15 @@ pub struct SleepDataLogger {
     group_name: String,
 }
 
+impl Drop for SleepDataLogger {
+    fn drop(&mut self) {
+        info!("Data logging ended, flushing final data.");
+        if let Err(e) = self.flush() {
+            warn!("Failed to flush data on drop: {}", e);
+        }
+    }
+}
+
 impl SleepDataLogger {
     pub fn new(data_path: &str, file_name: &str) -> Result<Self, Box<dyn Error>> {
         let file = File::append(data_path.to_string() + "/" + file_name)?;
