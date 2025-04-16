@@ -10,11 +10,35 @@
 </head>
 <body>
   <h2>Sleep Data Viewer</h2>
+  <label for="group-select">Select Date:</label>
+  <select id="group-select" onchange="loadPlotData(this.value)"></select>
   <div id="plots"></div>
   <img id="preview" src="" alt="Image preview" hidden />
 
   <script>
-    fetch('/data')
+    async function fetchGroups() {
+      const res = await fetch("/groups");
+      const groups = await res.json();
+      const dropdown = document.getElementById("group-select");
+
+      dropdown.innerHTML = ""; // clear existing options
+      groups.forEach(group => {
+        const option = document.createElement("option");
+        option.value = group;
+        option.text = group;
+        dropdown.appendChild(option);
+      });
+
+      if (groups.length > 0) {
+        dropdown.value = groups[0];
+        loadPlotData(groups[0]); // load first group initially
+      }
+    }
+
+    async function loadPlotData(group) {
+      // Replace with your actual data loading logic:
+      console.log("Selected group:", group);
+      fetch(`/data?group=${group}`)
       .then(r => r.json())
       .then(data => {
         const time = data.timestamp;
@@ -44,6 +68,9 @@
             });
         });
       });
+    }
+
+    window.onload = fetchGroups;    
   </script>
 </body>
 </html>

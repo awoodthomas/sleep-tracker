@@ -11,10 +11,21 @@ GROUP_NAME = "2025-04-14_test"
 def index():
     return render_template("index.html")
 
+@app.route("/groups")
+def list_groups():
+    groups = []
+    with h5py.File(HDF5_PATH, "r") as f:
+        def visitor(name, obj):
+            if isinstance(obj, h5py.Group) and name.count("/") == 0:
+                groups.append(name)
+        f.visititems(visitor)
+    return jsonify(groups)
+
+
 @app.route("/data")
 def get_data():
     with h5py.File(HDF5_PATH, "r") as f:
-        g = f[GROUP_NAME]
+        g = f[request.args.get("group")]
         timestamps = g["timestamp"][:].tolist()
         temperature = g["temperature"][:].tolist()
         co2 = g["pressure"][:].tolist()
