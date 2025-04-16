@@ -77,9 +77,9 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     });
 
     // Open file & initialize buffer
-    let mut data_logger = SleepDataLogger::new(&data_path, "sleep_data.h5")?;
+    let mut data_logger = SleepDataLogger::new(data_path, "sleep_data.h5")?;
 
-    let mut sensor_reader = SensorReader::new(&data_path)?;
+    let mut sensor_reader = SensorReader::new(data_path)?;
     info!("DB & sensor reader initialized.");
 
     tokio::select! {
