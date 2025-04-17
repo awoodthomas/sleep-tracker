@@ -1,4 +1,5 @@
 use ens160_aq::Ens160;
+use mcp342x::{Channel, Gain, MCP342x, Resolution};
 use tracing::{info, warn};
 
 use linux_embedded_hal::{Delay, I2cdev};
@@ -53,8 +54,7 @@ impl CameraWrapper {
         std::fs::write(&image_path, &*frame).map_err(|e| {
             warn!("Failed to save image: {:?}", e);
         }).ok()?;
-    
-        info!("Image saved to {}", image_path);
+
         Some(image_path)
     }
 }
@@ -88,9 +88,45 @@ impl ENS160Wrapper {
     }
 }
 
+pub struct ThermistorWrapper {
+    adc: MCP342x<I2cdev>,
+}
+impl ThermistorWrapper {
+    const R_I: f32 = 3200.0; // Voltage divider resistor value in Ohms
+    const V_SS: f32 = 5.3; // Supply voltage in Volts
+    // Steinhart-Hart coefficients for the thermistor
+    // https://docs.google.com/spreadsheets/d/1Nf47ojSvB1wB5JmTSs-cXLMhxmIMcvHLitLAx047UdE/edit?pli=1&gid=1211676988#gid=1211676988
+    const A : f64 = 0.0002264321654;
+    const B : f64 = 0.0003753456578;
+    const C : f64 = -0.0000004022657641;
+
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        let i2c_bus = I2cdev::new("/dev/i2c-1")?;
+        let mut adc = MCP342x::new(i2c_bus, 0x68);
+        adc.set_channel(Channel::Ch3);
+        adc.set_gain(Gain::G1);
+        adc.set_resolution(Resolution::Bits16);
+        adc.convert()?; // Force one shot mode and write the configuration
+        std::thread::sleep(Duration::from_millis(10));
+        Ok(Self { adc })
+    }
+    pub fn measure(&mut self) -> Option<f32> {
+        let voltage = self.adc.read(false).map_err(|e| {
+            warn!("Thermistor measurement error: {:?}", e);
+        }).ok()?;
+
+        // R = (voltage divider resistor [Ohms]) * (Vss [V] / voltage [V] - 1)
+        let resistance: f64 = (Self::R_I * (Self::V_SS / voltage - 1.0)).into();
+        // Calculate temperature in Celsius using the Steinhart-Hart equation
+        let temp = 1.0 / (Self::A + Self::B*resistance.ln() + Self::C*resistance.ln().powi(3)) - 273.15;
+        Some(temp as f32)
+    }
+}
+
 pub struct SensorReader {
     bme280: BME280Wrapper,
     ens160: ENS160Wrapper,
+    thermistor: ThermistorWrapper,
     camera: CameraWrapper,
 }
 
@@ -104,10 +140,13 @@ impl SensorReader {
         let ens160 = ENS160Wrapper::new(bme280_measurements.temperature, bme280_measurements.humidity)?;
         info!("ENS160 initialized successfully with cal temp of {}°C and {} RH.", bme280_measurements.temperature, bme280_measurements.humidity);
 
+        let thermistor = ThermistorWrapper::new()?;
+        info!("Thermistor ADC initialized successfully.");
+
         let camera = CameraWrapper::new(data_path.to_string() + "/images/" )?;            
         info!("Camera initialized successfully.");
         
-        Ok(Self { bme280, ens160, camera })
+        Ok(Self { bme280, ens160, thermistor, camera })
     }
 
     #[tracing::instrument(skip(self))]
@@ -121,6 +160,9 @@ impl SensorReader {
         if let Some(ens160_measurements) = self.ens160.measure() {
             builder = builder.with_ens160(ens160_measurements);
         } 
+        if let Some(thermistor_measurement) = self.thermistor.measure() {
+            builder = builder.with_thermistor_temp(thermistor_measurement);
+        }
         if let Some(image_path) = self.camera.measure(&timestamp.to_string()) {
             builder = builder.with_image_path(image_path);
         }

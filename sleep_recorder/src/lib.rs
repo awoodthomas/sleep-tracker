@@ -18,6 +18,7 @@ pub struct SleepData {
     co2eq_ppm: u16,
     tvoc_ppb: u16,
     air_quality_index: u16,
+    thermistor_temp: f32,
     image_path: String,
 }
 impl SleepData {
@@ -35,6 +36,7 @@ pub struct SleepDataBuilder {
     co2eq_ppm: Option<u16>,
     tvoc_ppb: Option<u16>,
     air_quality_index: Option<u16>,
+    thermistor_temp: Option<f32>,
     image_path: Option<String>,
 }
 
@@ -65,6 +67,11 @@ impl SleepDataBuilder {
         self
     }
 
+    pub fn with_thermistor_temp(mut self, thermistor_temp: f32) -> Self {
+        self.thermistor_temp = Some(thermistor_temp);
+        self
+    }
+
     pub fn build(self) -> SleepData {
         SleepData {
             timestamp: self.timestamp,
@@ -74,6 +81,7 @@ impl SleepDataBuilder {
             co2eq_ppm: self.co2eq_ppm.unwrap_or_default(),
             tvoc_ppb: self.tvoc_ppb.unwrap_or_default(),
             air_quality_index: self.air_quality_index.unwrap_or_default(),
+            thermistor_temp: self.thermistor_temp.unwrap_or(f32::NAN),
             image_path: self.image_path.unwrap_or_default(),
         }
     }

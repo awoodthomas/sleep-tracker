@@ -62,6 +62,7 @@ impl SleepDataLogger {
         data_map.insert("co2eq_ppm", SleepField::U16(|d| d.co2eq_ppm));
         data_map.insert("tvoc_ppb", SleepField::U16(|d| d.tvoc_ppb));
         data_map.insert("air_quality_index", SleepField::U16(|d| d.air_quality_index));
+        data_map.insert("thermistor_temp", SleepField::F32(|d| d.thermistor_temp));
         data_map.insert("image_path", SleepField::String(|d| VarLenUnicode::from_str(&d.image_path).unwrap_or_default()));
     
         for (key, sleep_field) in data_map.iter() {
