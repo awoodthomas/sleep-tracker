@@ -12,8 +12,16 @@
   <h2>Sleep Data Viewer</h2>
   <label for="group-select">Select Date:</label>
   <select id="group-select" onchange="loadPlotData(this.value)"></select>
+  <div>
+    <label for="audio-select">Select Audio:</label>
+    <select id="audio-select" onchange="loadAudio(this.value)">
+      <option value="">-- Select --</option>
+    </select>
+    <audio id="audio-player" controls style="width: 100%; display: none;"></audio>
+  </div>  
   <div id="plots"></div>
   <img id="preview" src="" alt="Image preview" hidden />
+
 
   <script>
     async function fetchGroups() {
@@ -87,7 +95,7 @@
 
           document.getElementById("plots").on("plotly_click", (e) => {
             const index = e.points[0].pointIndex;
-            const path = data.image_paths[index];
+            const path = data.image_path[index];
             if (!path) return;
             fetch(`/preview?path=${encodeURIComponent(path)}`)
               .then(res => res.blob())
@@ -97,8 +105,32 @@
                 document.getElementById("preview").hidden = false;
               });
           });
+          const audioSelect = document.getElementById("audio-select");
+          audioSelect.innerHTML = '<option value="">-- Select --</option>'; // reset
+
+          data.audio.forEach(entry => {
+            const label = `Audio @ ${new Date(entry.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${Math.round(entry.duration)}s)`;
+            const option = document.createElement("option");
+            option.value = entry.path;
+            option.textContent = label;
+            audioSelect.appendChild(option);
+          });
         });
       }
+
+      function loadAudio(path) {
+        if (!path) return;
+
+        fetch(`/preview?path=${encodeURIComponent(path)}`)
+          .then(res => res.blob())
+          .then(blob => {
+            const audio = document.getElementById("audio-player");
+            audio.src = URL.createObjectURL(blob);
+            audio.style.display = "block";
+            audio.load(); // reset
+          });
+      }
+
 
     window.onload = fetchGroups;    
   </script>
