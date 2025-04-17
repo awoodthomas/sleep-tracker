@@ -12,6 +12,7 @@ use super::SleepData;
 #[derive(Debug)]
 enum SleepField {
     U64(fn(&SleepData) -> u64),
+    U16(fn(&SleepData) -> u16),
     F32(fn(&SleepData) -> f32),
     String(fn(&SleepData) -> VarLenUnicode),
 }
@@ -58,11 +59,15 @@ impl SleepDataLogger {
         data_map.insert("temperature", SleepField::F32(|d| d.temperature));
         data_map.insert("pressure", SleepField::F32(|d| d.pressure));
         data_map.insert("humidity", SleepField::F32(|d| d.humidity));
+        data_map.insert("co2eq_ppm", SleepField::U16(|d| d.co2eq_ppm));
+        data_map.insert("tvoc_ppb", SleepField::U16(|d| d.tvoc_ppb));
+        data_map.insert("air_quality_index", SleepField::U16(|d| d.air_quality_index));
         data_map.insert("image_path", SleepField::String(|d| VarLenUnicode::from_str(&d.image_path).unwrap_or_default()));
     
         for (key, sleep_field) in data_map.iter() {
             match sleep_field {
                 SleepField::U64(_) => Self::generate_dataset::<u64>(&group, key)?,
+                SleepField::U16(_) => Self::generate_dataset::<u16>(&group, key)?,
                 SleepField::F32(_) => Self::generate_dataset::<f32>(&group, key)?,
                 SleepField::String(_) => Self::generate_dataset::<VarLenUnicode>(&group, key)?,
             };
@@ -123,6 +128,10 @@ impl SleepDataLogger {
             match sleep_field {
                 SleepField::U64(f) => {
                     let data: Vec<u64> = buffer.iter().map(f).collect();
+                    write_dataset(&group, name, data, current_size, new_size)?;
+                }
+                SleepField::U16(f) => {
+                    let data: Vec<u16> = buffer.iter().map(f).collect();
                     write_dataset(&group, name, data, current_size, new_size)?;
                 }
                 SleepField::F32(f) => {
