@@ -103,7 +103,10 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
         },
         _ = clonced_cancel.cancelled() => {
             info!("Recevied shutdown signal.");
-        }
+        },
+        _ = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60 * 60 * 10)).await;
+        }) => {info!("Ten hours passed, ending recording.")},
     }
 
     info!("Logger stopped.");
