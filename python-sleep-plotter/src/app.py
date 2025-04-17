@@ -28,15 +28,21 @@ def get_data():
         g = f[request.args.get("group")]
         timestamps = g["timestamp"][:].tolist()
         temperature = g["temperature"][:].tolist()
-        co2 = g["pressure"][:].tolist()
+        pressures = g["pressure"][:].tolist()
         humidity = g["humidity"][:].tolist()
-        image_paths = g.get("image_path", [])[:].astype(str).tolist() if "image_path" in g else [""] * len(timestamps)
+        co2 = g["co2eq_ppm"][:].tolist()
+        tvoc = g["tvoc_ppb"][:].tolist()
+        aqi = g["air_quality_index"][:].tolist()
+        image_paths = g.get("image_path", [])[:].astype(str).tolist()
 
     return jsonify({
         "timestamp": timestamps,
         "temperature": temperature,
-        "pressure": co2,
+        "pressure": pressures,
         "humidity": humidity,
+        "co2eq_ppm": co2,
+        "tvoc_ppb": tvoc,
+        "air_quality_index": aqi,
         "image_paths": image_paths
     })
 

@@ -36,39 +36,64 @@
     }
 
     async function loadPlotData(group) {
-      // Replace with your actual data loading logic:
       console.log("Selected group:", group);
       fetch(`/data?group=${group}`)
-      .then(r => r.json())
-      .then(data => {
-        const time = data.timestamp;
-        const temp = { x: time, y: data.temperature, name: "Temp (°C)", type: "scatter" };
-        const co2 = { x: time, y: data.co2, name: "CO2 (ppm)", type: "scatter" };
-        const hum = { x: time, y: data.humidity, name: "Humidity (%)", type: "scatter" };
+        .then(r => r.json())
+        .then(data => {
+          console.log("Data keys:", Object.keys(data)); // sanity check
+          const time = data.timestamp.map(ts => new Date(ts * 1000).toLocaleString());
 
-        const layout = {
-          title: "Sensor Readings",
-          height: 600,
-          xaxis: { title: "Time (s)" },
-          yaxis: { title: "Value" }
-        };
+          function makeTrace(values, label, unit) {
+            const max = Math.max(...values);
+            const min = Math.min(...values) / 0.5;
+            const normalized = values.map(v => (v - min) / (max - min));
+            return {
+              x: time,
+              y: normalized,
+              customdata: values,
+              name: `${label}`,
+              type: "scatter",
+              mode: "lines",
+              hovertemplate: `${label}: %{customdata:.2f} ${unit}<extra></extra>`
+            };
+          }
 
-        Plotly.newPlot("plots", [temp, co2, hum], layout);
+          const traces = [
+            makeTrace(data.temperature, "Temp", "°C"),
+            makeTrace(data.humidity, "Humidity", "%"),
+            makeTrace(data.co2eq_ppm, "CO2", "ppm"),
+            makeTrace(data.tvoc_ppb, "TVOC", "ppb"),
+            makeTrace(data.air_quality_index, "AQI", "")
+          ];
 
-        document.getElementById("plots").on("plotly_click", (e) => {
-          const index = e.points[0].pointIndex;
-          const path = data.image_paths[index];
-          if (!path) return;
-          fetch(`/preview?path=${encodeURIComponent(path)}`)
-            .then(res => res.blob())
-            .then(blob => {
-              const url = URL.createObjectURL(blob);
-              document.getElementById("preview").src = url;
-              document.getElementById("preview").hidden = false;
-            });
+          const layout = {
+            title: "Sensor Readings",
+            height: 600,
+            xaxis: { title: "Time (Local)", tickformat: "%H:%M" },
+            yaxis: {
+              showticklabels: false,
+              showgrid: false,
+              zeroline: false,
+              title: ""
+            }
+          };
+
+          Plotly.newPlot("plots", traces, layout);
+
+          document.getElementById("plots").on("plotly_click", (e) => {
+            const index = e.points[0].pointIndex;
+            const path = data.image_paths[index];
+            if (!path) return;
+            fetch(`/preview?path=${encodeURIComponent(path)}`)
+              .then(res => res.blob())
+              .then(blob => {
+                const url = URL.createObjectURL(blob);
+                document.getElementById("preview").src = url;
+                document.getElementById("preview").hidden = false;
+              });
+          });
         });
-      });
-    }
+      }
 
     window.onload = fetchGroups;    
   </script>
