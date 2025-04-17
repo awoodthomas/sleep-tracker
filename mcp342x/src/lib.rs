@@ -1,15 +1,17 @@
 //! MCP342x ADC driver for Linux using linux_embedded_hal and embedded-hal.
 
 use embedded_hal::i2c::I2c;
-use std::{time::Duration};
+use std::time::Duration;
+use thiserror::Error;
 
 /// Errors for the MCP342x driver.
-#[derive(Debug)]
-pub enum Error<E> {
-    /// Underlying I2C bus error.
-    I2c(E),
-    /// Configuration read back from device does not match driver config.
+#[derive(Error, Debug)]
+pub enum Error<E: std::error::Error + 'static> {
+    #[error("I2C bus error: {0}")]
+    I2c(#[from] E),
+    #[error("Configuration read back from device does not match driver config: used {used}, stored {stored}")]
     ConfigMismatch { used: u8, stored: u8 },
+
 }
 
 /// PGA gain settings.
@@ -51,6 +53,7 @@ pub struct MCP342x<I2C> {
 impl<I2C, E> MCP342x<I2C>
 where
     I2C: I2c<Error = E>,
+    I2C::Error: std::error::Error + 'static,
 {
     const GAIN_MASK: u8 = 0b00000011;
     const RES_MASK: u8 = 0b00001100;
