@@ -1,3 +1,5 @@
+#![allow(non_local_definitions)]
+
 use std::{collections::HashMap, str::FromStr};
 use std::error::Error;
 use std::result::Result;
@@ -7,6 +9,8 @@ use hdf5::{types::VarLenUnicode, File, H5Type};
 
 use tracing::{info, warn};
 
+use crate::AudioRecording;
+
 use super::SleepData;
 
 #[derive(Debug)]
@@ -15,6 +19,25 @@ enum SleepField {
     U16(fn(&SleepData) -> u16),
     F32(fn(&SleepData) -> f32),
     String(fn(&SleepData) -> VarLenUnicode),
+}
+
+#[derive(H5Type, Clone, Debug)]
+#[repr(C)] // important: makes memory layout compatible
+struct H5AudioMetadata {
+    start_time: u64,
+    duration: u64,
+    path: VarLenUnicode,
+}
+
+impl From<AudioRecording> for H5AudioMetadata {
+    fn from(rec: AudioRecording) -> Self {
+        Self {
+            start_time: rec.start_time,
+            // Assuming AudioRecording has a duration field.
+            duration: rec.duration.as_secs(),
+            path: VarLenUnicode::from_str(&rec.path).unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -73,6 +96,7 @@ impl SleepDataLogger {
                 SleepField::String(_) => Self::generate_dataset::<VarLenUnicode>(&group, key)?,
             };
         }
+        Self::generate_dataset::<H5AudioMetadata>(&group, "audio")?;
         info!("HDF5 file ({file_name}) and group ({group_name}) created successfully at {data_path}.");
 
         Ok(Self {
@@ -96,6 +120,12 @@ impl SleepDataLogger {
     }
 
     #[tracing::instrument(skip(self))]
+    pub fn add_audio_entry(&mut self, audio_recording: AudioRecording) -> Result<(), Box<dyn Error>> {
+        let group = self.file.group(&self.group_name)?;
+        Ok(append_to_dataset(&group, "audio", &[H5AudioMetadata::from(audio_recording)])?)
+    }
+
+    #[tracing::instrument(skip(self))]
     pub fn flush(&mut self) -> Result<(), Box<dyn Error>> {
         let buffer = std::mem::take(&mut self.buffer);
         let file = self.file.clone();
@@ -107,47 +137,48 @@ impl SleepDataLogger {
 
         let group = file.group(&group_name)?;
 
-        // Define a helper function to handle dataset operations
-        fn write_dataset<T: H5Type>(
-            group: &hdf5::Group,
-            dataset_name: &str,
-            data: Vec<T>,
-            current_size: usize,
-            new_size: usize,
-        ) -> Result<(), Box<dyn Error>> {
-            let dataset = group.dataset(dataset_name)?;
-            dataset.resize(new_size)?;
-            dataset.write_slice(&data, (current_size..new_size,))?;
-            Ok(())
-        }
-
-        let current_size = group.dataset("timestamp")?.shape()[0];
-        let new_size = current_size + buffer.len();
-
         // Collect data from buffer
         for (name, sleep_field) in self.data_map.iter() {
             match sleep_field {
                 SleepField::U64(f) => {
                     let data: Vec<u64> = buffer.iter().map(f).collect();
-                    write_dataset(&group, name, data, current_size, new_size)?;
+                    append_to_dataset(&group, name, &data)?;
                 }
                 SleepField::U16(f) => {
                     let data: Vec<u16> = buffer.iter().map(f).collect();
-                    write_dataset(&group, name, data, current_size, new_size)?;
+                    append_to_dataset(&group, name, &data)?;
                 }
                 SleepField::F32(f) => {
                     let data: Vec<f32> = buffer.iter().map(f).collect();
-                    write_dataset(&group, name, data, current_size, new_size)?;
+                    append_to_dataset(&group, name, &data)?;
                 }
                 SleepField::String(f) => {
                     let data: Vec<VarLenUnicode> = buffer.iter().map(f).collect();
-                    write_dataset(&group, name, data, current_size, new_size)?;
+                    append_to_dataset(&group, name, &data)?;
                 }
             }
         }
 
-        info!("Successfully flushed, size increased from {current_size} to {new_size}");
+        info!("Successfully flushed to hdf5");
         Ok(())
-    }
+    }    
 }
 
+fn append_to_dataset<T: H5Type>(group: &hdf5::Group, dataset_name: &str, new_vals: &[T]) -> hdf5::Result<()> {
+    let dataset = group.dataset(dataset_name)?;
+
+    // 1) find current length
+    let old_len = dataset.shape()[0];
+    let add_len = new_vals.len();
+    let new_len = old_len + add_len;
+
+    // 2) resize the dataset
+    //    for 1‑D you can just pass the new length
+    dataset.resize(new_len)?;
+
+    // 3) write into the hyperslab at the end
+    //    note the comma to make it a 1‑tuple
+    dataset.write_slice(new_vals, (old_len..new_len,))?;
+
+    Ok(())
+}

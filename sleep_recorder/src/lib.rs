@@ -1,10 +1,12 @@
 use std::error::Error;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info, warn};
 
 use data::SleepDataLogger;
-use sensor::SensorReader;
+use sensor::{AudioRecorder, SensorReader};
 
 pub mod sensor;
 pub mod data;
@@ -25,6 +27,13 @@ impl SleepData {
     pub fn builder(timestamp: u64) -> SleepDataBuilder {
         SleepDataBuilder::new(timestamp)
     }
+}
+
+#[derive(Debug)]
+pub struct AudioRecording {
+    pub path: String,
+    pub duration: Duration,
+    pub start_time: u64,
 }
 
 #[derive(Default)]
@@ -88,45 +97,112 @@ impl SleepDataBuilder {
 }
 
 pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
+    // 1) Setup
     let cancel = CancellationToken::new();
-    let clonced_cancel = cancel.clone();
+    let sensor_cancel = cancel.clone();
+    let audio_cancel  = cancel.clone();
 
-    // Spawn shutdown signal handler
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.unwrap();
-        info!("Shutdown signal received.");
-        cancel.cancel();
-    });
+    let data_logger   = Arc::new(Mutex::new(
+        SleepDataLogger::new(data_path, "sleep_data.h5")?));
+    let sensor_reader = Arc::new(Mutex::new(
+        SensorReader::new(data_path)?));
+    let audio_recorder = Arc::new(
+        AudioRecorder::new(
+            format!("{}/audio", data_path),
+            Duration::from_secs(10),
+            "plughw:1,0".to_string(),
+        ));
 
-    // Open file & initialize buffer
-    let mut data_logger = SleepDataLogger::new(data_path, "sleep_data.h5")?;
+    // 2) Spawn the sensor‐polling task
+    let mut sensor_handle = tokio::spawn(sensor_loop(sensor_cancel, data_logger.clone(), sensor_reader.clone()));
+    let mut audio_handle  = tokio::spawn(audio_loop(audio_cancel, data_logger.clone(), audio_recorder.clone()));
 
-    let mut sensor_reader = SensorReader::new(data_path)?;
-    info!("DB & sensor reader initialized.");
+    // 4) Top‐level select: Ctrl‑C, timeout, or task failures
+    let timeout = tokio::time::sleep(Duration::from_secs(60 * 60 * 10)); // 10 h
+    tokio::pin!(timeout);
 
     tokio::select! {
-        _ = collect_sensor_data(&mut data_logger, &mut sensor_reader) => {
-            // This branch will run until the sensor polling is interrupted
-            info!("Sensor polling completed.");
-        },
-        _ = clonced_cancel.cancelled() => {
-            info!("Recevied shutdown signal.");
-        },
-        _ = tokio::spawn(async {
-            tokio::time::sleep(Duration::from_secs(60 * 60 * 10)).await;
-        }) => {info!("Ten hours passed, ending recording.")},
+        _ = tokio::signal::ctrl_c() => {
+            info!("Ctrl‑C received; cancelling...");
+            cancel.cancel();
+        }
+
+        _ = &mut timeout => {
+            info!("Timeout reached; cancelling...");
+            cancel.cancel();
+        }
+
+        // If either background task panics or returns:
+        res = &mut sensor_handle => {
+            if let Err(e) = res {
+                error!("Sensor task aborted: {:?}", e);
+                cancel.cancel();
+            }
+        }
+        res = &mut audio_handle => {
+            if let Err(e) = res {
+                error!("Audio task aborted: {:?}", e);
+                cancel.cancel();
+            }
+        }
     }
 
-    info!("Logger stopped.");
+    // 5) Wait for both loops to finish cleanly
+    let _ = sensor_handle.await;
+    let _ = audio_handle.await;
+
+    info!("All loops exited; sleep_tracker done.");
     Ok(())
 }
 
-async fn collect_sensor_data(data_logger: &mut SleepDataLogger, sensor_reader: &mut SensorReader) {
+async fn sensor_loop(
+    cancel: CancellationToken,
+    data_logger: Arc<Mutex<SleepDataLogger>>,
+    sensor_reader: Arc<Mutex<SensorReader>>,
+) {
     let mut interval = tokio::time::interval(Duration::from_secs(5));
-
     loop {
-        interval.tick().await;
-        let sample = sensor_reader.measure().expect("Failed to read sensor data.");
-        data_logger.append(sample).expect("Failed to append data to logger.");
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                info!("sensor_loop: shutdown");
+                break;
+            }
+            _ = interval.tick() => {
+                let sample = match sensor_reader.lock().await.measure() {
+                    Ok(s)  => s,
+                    Err(e) => { warn!("sensor read error: {}", e); continue; }
+                };
+                if let Err(e) = data_logger.lock().await.append(sample) {
+                    warn!("log append error: {}", e);
+                }
+            }
+        }
+    }
+}
+
+async fn audio_loop(
+    cancel: CancellationToken,
+    data_logger: Arc<Mutex<SleepDataLogger>>,
+    recorder: Arc<AudioRecorder>,
+) {
+    let mut interval = tokio::time::interval(recorder.recording_time);
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                info!("audio_loop: shutdown");
+                break;
+            }
+            _ = interval.tick() => {
+                match recorder.async_audio_recording().await {
+                    Ok(rec) => {
+                        let path = rec.path.clone();
+                        if let Ok(_) = data_logger.lock().await.add_audio_entry(rec)   {
+                            info!("audio saved to {:?}", path);
+                        }
+                    }
+                    Err(e) => warn!("audio error: {}", e),
+                }
+            }
+        }
     }
 }

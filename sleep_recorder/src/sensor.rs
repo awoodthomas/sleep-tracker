@@ -1,12 +1,15 @@
 use ens160_aq::Ens160;
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
+use tokio::process::Command;
 use tracing::{info, warn};
 
 use linux_embedded_hal::{Delay, I2cdev};
 use bme280::i2c::BME280;
 use rscam::{Camera, Config};
 
-use std::{error::Error, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
+
+use crate::AudioRecording;
 
 use super::SleepData;
 
@@ -115,11 +118,56 @@ impl ThermistorWrapper {
             warn!("Thermistor measurement error: {:?}", e);
         }).ok()?;
 
+        info!("Thermistor voltage: {}", voltage);
+
         // R = (voltage divider resistor [Ohms]) * (Vss [V] / voltage [V] - 1)
         let resistance: f64 = (Self::R_I * (Self::V_SS / voltage - 1.0)).into();
         // Calculate temperature in Celsius using the Steinhart-Hart equation
         let temp = 1.0 / (Self::A + Self::B*resistance.ln() + Self::C*resistance.ln().powi(3)) - 273.15;
         Some(temp as f32)
+    }
+}
+
+pub struct AudioRecorder {
+    pub audio_directory: String,
+    pub recording_time: Duration,
+    pub device_id: String
+}
+impl AudioRecorder {
+    pub fn new(audio_directory: String, recording_time: Duration, device_id: String) -> Self {
+        Self { audio_directory, recording_time, device_id }
+    }
+    pub async fn async_audio_recording(&self) -> Result<AudioRecording, Box<dyn Error + Send + Sync>> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs();
+        
+        let filepath = format!("{}/audio_{}.mp3", &self.audio_directory, timestamp);
+
+        // spawn ffmpeg and wait asynchronously
+        let mut child = Command::new("ffmpeg")
+            .args([
+                "-f", "alsa",
+                "-ac", "1",
+                "-i", &self.device_id,
+                "-t", &self.recording_time.as_secs().to_string(),
+                "-acodec", "libmp3lame",
+                "-b:a", "128k",
+                "-y",
+                &filepath,
+            ])
+            .spawn()?;
+
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(format!("ffmpeg exited with {:?}", status).into());
+        }
+
+        Ok(AudioRecording {
+            path: filepath,
+            duration: self.recording_time,
+            start_time: timestamp,
+        })
     }
 }
 
@@ -150,7 +198,7 @@ impl SensorReader {
     }
 
     #[tracing::instrument(skip(self))]
-    pub fn measure(&mut self) -> Result<SleepData, Box<dyn Error>> {
+    pub fn measure(&mut self) -> Result<SleepData, SystemTimeError> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let mut builder = SleepData::builder(timestamp);
 
