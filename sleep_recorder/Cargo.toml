@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bme280 = { version = "0.5.1", features = ["with_std"] }
 chrono = "0.4.40"
+ens160-aq = "0.2.10"
 hdf5 = "0.8.1"
 linux-embedded-hal = "0.4.0"
 rscam = "0.5.5"

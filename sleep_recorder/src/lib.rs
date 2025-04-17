@@ -15,6 +15,9 @@ pub struct SleepData {
     temperature: f32,
     pressure: f32,
     humidity: f32,
+    co2eq_ppm: u16,
+    tvoc_ppb: u16,
+    air_quality_index: u16,
     image_path: String,
 }
 impl SleepData {
@@ -23,11 +26,15 @@ impl SleepData {
     }
 }
 
+#[derive(Default)]
 pub struct SleepDataBuilder {
     timestamp: u64,
     temperature: Option<f32>,
     pressure: Option<f32>,
     humidity: Option<f32>,
+    co2eq_ppm: Option<u16>,
+    tvoc_ppb: Option<u16>,
+    air_quality_index: Option<u16>,
     image_path: Option<String>,
 }
 
@@ -35,10 +42,7 @@ impl SleepDataBuilder {
     pub fn new(timestamp: u64) -> Self {
         Self {
             timestamp,
-            temperature: None,
-            pressure: None,
-            humidity: None,
-            image_path: None,
+            ..Self::default()
         }
     }
 
@@ -46,6 +50,13 @@ impl SleepDataBuilder {
         self.temperature = Some(measurements.temperature);
         self.pressure = Some(measurements.pressure);
         self.humidity = Some(measurements.humidity);
+        self
+    }
+
+    pub fn with_ens160(mut self, measurements: ens160_aq::data::Measurements) -> Self {
+        self.co2eq_ppm = Some(measurements.co2eq_ppm.value);
+        self.tvoc_ppb = Some(measurements.tvoc_ppb);
+        self.air_quality_index = Some(measurements.air_quality_index as u16);
         self
     }
 
@@ -60,6 +71,9 @@ impl SleepDataBuilder {
             temperature: self.temperature.unwrap_or(f32::NAN),
             pressure: self.pressure.unwrap_or(f32::NAN),
             humidity: self.humidity.unwrap_or(f32::NAN),
+            co2eq_ppm: self.co2eq_ppm.unwrap_or_default(),
+            tvoc_ppb: self.tvoc_ppb.unwrap_or_default(),
+            air_quality_index: self.air_quality_index.unwrap_or_default(),
             image_path: self.image_path.unwrap_or_default(),
         }
     }
