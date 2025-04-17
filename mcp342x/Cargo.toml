@@ -1,0 +1,11 @@
+[package]
+name        = "mcp342x"
+version     = "0.1.0"
+authors     = ["Alexander Wood-Thomas"]
+edition     = "2021"
+description = "Driver for Microchip MCP342x ADCs on Linux (linux-embedded-hal)"
+license     = "MIT OR Apache-2.0"
+
+[dependencies]
+embedded-hal = "1.0.0"
+linux-embedded-hal = "0.4.0"
