@@ -41,11 +41,15 @@
         .then(r => r.json())
         .then(data => {
           console.log("Data keys:", Object.keys(data)); // sanity check
-          const time = data.timestamp.map(ts => new Date(ts * 1000).toLocaleString());
+          const OFFSET_MINUTES = 480; // UTC+8 offset in minutes
+
+          const time = data.timestamp.map(ts => new Date((ts - OFFSET_MINUTES * 60) * 1000).toISOString());
 
           function makeTrace(values, label, unit) {
             const max = Math.max(...values);
-            const min = Math.min(...values) / 0.5;
+            const min = Math.min(...values) / 2;
+            console.log(label, "min: ", min, "max: ", max);
+
             const normalized = values.map(v => (v - min) / (max - min));
             return {
               x: time,
@@ -60,6 +64,7 @@
 
           const traces = [
             makeTrace(data.temperature, "Temp", "°C"),
+            makeTrace(data.thermistor_temp, "Thermistor", "°C"),
             makeTrace(data.humidity, "Humidity", "%"),
             makeTrace(data.co2eq_ppm, "CO2", "ppm"),
             makeTrace(data.tvoc_ppb, "TVOC", "ppb"),
@@ -69,9 +74,9 @@
           const layout = {
             title: "Sensor Readings",
             height: 600,
-            xaxis: { title: "Time (Local)", tickformat: "%H:%M" },
+            xaxis: { title: "Time (Local)", tickformat: "%I:%M %p" },
             yaxis: {
-              showticklabels: false,
+              showticklabels: true,
               showgrid: false,
               zeroline: false,
               title: ""

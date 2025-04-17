@@ -33,7 +33,11 @@ def get_data():
         co2 = g["co2eq_ppm"][:].tolist()
         tvoc = g["tvoc_ppb"][:].tolist()
         aqi = g["air_quality_index"][:].tolist()
+        thermistor_temp = g["thermistor_temp"][:].tolist()
         image_paths = g.get("image_path", [])[:].astype(str).tolist()
+        
+
+    print(g, "min: ", min(tvoc), "max: ", max(tvoc));
 
     return jsonify({
         "timestamp": timestamps,
@@ -43,6 +47,7 @@ def get_data():
         "co2eq_ppm": co2,
         "tvoc_ppb": tvoc,
         "air_quality_index": aqi,
+        "thermistor_temp": thermistor_temp,
         "image_paths": image_paths
     })
 
