@@ -1,7 +1,9 @@
+import traceback
 from flask import Flask, render_template, jsonify, send_file, request
 import h5py
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 
 app = Flask(__name__)
 HDF5_PATH = os.environ["SLEEP_DATA_DIR"] + "/sleep_data.h5"
@@ -21,13 +23,20 @@ def list_groups():
         f.visititems(visitor)
     return jsonify(groups)
 
+def clean_nan_array(arr):
+    return [None if np.isnan(x) else float(x) for x in arr]
 
 @app.route("/data")
 def get_data():
     data = {}
+    group_name = request.args.get("group")
+
+    if not group_name:
+        return jsonify({"error": "Missing group parameter"}), 404
+
     try:
         with h5py.File(HDF5_PATH, "r") as f:
-            group = f[request.args.get("group")]
+            group = f[group_name]
             # timestamps = g["timestamp"][:].tolist()
             # temperature = g["temperature"][:].tolist()
             # pressures = g["pressure"][:].tolist()
@@ -40,8 +49,10 @@ def get_data():
             for key in ["timestamp", "temperature", "humidity", "co2eq_ppm", "tvoc_ppb", "air_quality_index", "thermistor_temp", "image_path"]:
                 if key in group:
                     dataset = group[key]
-                    if dataset.dtype.kind in {'u', 'i', 'f'}:
+                    if dataset.dtype.kind in {'u', 'i'}:
                         data[key] = dataset[:].astype(float).tolist()
+                    elif dataset.dtype.kind == 'f':
+                        data[key] = clean_nan_array(dataset[:])
                     else:
                         data[key] = dataset[:].astype(str).tolist()
             
@@ -59,7 +70,13 @@ def get_data():
             else:
                 data["audio"] = []
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+    
+    if "temperature" in data:
+        data["temperature"] = [None if x is None else (x * 9 / 5 + 32) for x in data["temperature"]]
+    if "thermistor_temp" in data:
+        data["thermistor_temp"] = [None if x is None else (x * 9 / 5 + 32) for x in data["thermistor_temp"]]
 
     return jsonify(data)       
 

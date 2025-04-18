@@ -58,7 +58,7 @@
             const min = Math.min(...values) / 2;
             console.log(label, "min: ", min, "max: ", max);
 
-            const normalized = values.map(v => (v - min) / (max - min));
+            const normalized = values.map(v => v === null ? null : (v - min) / (max - min));
             return {
               x: time,
               y: normalized,
@@ -66,13 +66,14 @@
               name: `${label}`,
               type: "scatter",
               mode: "lines",
+              connnectgaps: false,
               hovertemplate: `${label}: %{customdata:.2f} ${unit}<extra></extra>`
             };
           }
 
           const traces = [
-            makeTrace(data.temperature, "Temp", "°C"),
-            makeTrace(data.thermistor_temp, "Thermistor", "°C"),
+            makeTrace(data.temperature, "Temp", "°F"),
+            makeTrace(data.thermistor_temp, "Thermistor", "°F"),
             makeTrace(data.humidity, "Humidity", "%"),
             makeTrace(data.co2eq_ppm, "CO2", "ppm"),
             makeTrace(data.tvoc_ppb, "TVOC", "ppb"),
