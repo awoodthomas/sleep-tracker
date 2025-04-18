@@ -7,9 +7,11 @@ use tracing::{error, info, warn};
 
 use data::SleepDataLogger;
 use sensor::{AudioRecorder, SensorReader};
+// use audio_analysis::decode_mp3;
 
 pub mod sensor;
 pub mod data;
+// pub mod audio_analysis;
 
 #[derive(Debug)]
 pub struct SleepData {
@@ -109,7 +111,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     let audio_recorder = Arc::new(
         AudioRecorder::new(
             format!("{}/audio", data_path),
-            Duration::from_secs(10),
+            Duration::from_secs(60*30),
             "plughw:1,0".to_string(),
         ));
 

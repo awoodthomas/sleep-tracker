@@ -114,7 +114,7 @@ impl ThermistorWrapper {
         Ok(Self { adc })
     }
     pub fn measure(&mut self) -> Option<f32> {
-        let voltage = self.adc.read(false).map_err(|e| {
+        let voltage = self.adc.convert_and_read(true, false).map_err(|e| {
             warn!("Thermistor measurement error: {:?}", e);
         }).ok()?;
 
