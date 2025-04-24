@@ -1,3 +1,6 @@
+//! Module for a Raspberry Pi sleep recording device.
+//! Users call the `sleep_tracker` function to start the application.
+
 use std::error::Error;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -13,91 +16,36 @@ pub mod sensor;
 pub mod data;
 // pub mod audio_analysis;
 
-#[derive(Debug)]
-pub struct SleepData {
-    timestamp: u64,
-    temperature: f32,
-    pressure: f32,
-    humidity: f32,
-    co2eq_ppm: u16,
-    tvoc_ppb: u16,
-    air_quality_index: u16,
-    thermistor_temp: f32,
-    image_path: String,
-}
-impl SleepData {
-    pub fn builder(timestamp: u64) -> SleepDataBuilder {
-        SleepDataBuilder::new(timestamp)
-    }
-}
-
-#[derive(Debug)]
-pub struct AudioRecording {
-    pub path: String,
-    pub duration: Duration,
-    pub start_time: u64,
-}
-
-#[derive(Default)]
-pub struct SleepDataBuilder {
-    timestamp: u64,
-    temperature: Option<f32>,
-    pressure: Option<f32>,
-    humidity: Option<f32>,
-    co2eq_ppm: Option<u16>,
-    tvoc_ppb: Option<u16>,
-    air_quality_index: Option<u16>,
-    thermistor_temp: Option<f32>,
-    image_path: Option<String>,
-}
-
-impl SleepDataBuilder {
-    pub fn new(timestamp: u64) -> Self {
-        Self {
-            timestamp,
-            ..Self::default()
-        }
-    }
-
-    pub fn with_bme280(mut self, measurements: bme280::Measurements<linux_embedded_hal::I2CError>) -> Self {
-        self.temperature = Some(measurements.temperature);
-        self.pressure = Some(measurements.pressure);
-        self.humidity = Some(measurements.humidity);
-        self
-    }
-
-    pub fn with_ens160(mut self, measurements: ens160_aq::data::Measurements) -> Self {
-        self.co2eq_ppm = Some(measurements.co2eq_ppm.value);
-        self.tvoc_ppb = Some(measurements.tvoc_ppb);
-        self.air_quality_index = Some(measurements.air_quality_index as u16);
-        self
-    }
-
-    pub fn with_image_path(mut self, image_path: String) -> Self {
-        self.image_path = Some(image_path);
-        self
-    }
-
-    pub fn with_thermistor_temp(mut self, thermistor_temp: f32) -> Self {
-        self.thermistor_temp = Some(thermistor_temp);
-        self
-    }
-
-    pub fn build(self) -> SleepData {
-        SleepData {
-            timestamp: self.timestamp,
-            temperature: self.temperature.unwrap_or(f32::NAN),
-            pressure: self.pressure.unwrap_or(f32::NAN),
-            humidity: self.humidity.unwrap_or(f32::NAN),
-            co2eq_ppm: self.co2eq_ppm.unwrap_or_default(),
-            tvoc_ppb: self.tvoc_ppb.unwrap_or_default(),
-            air_quality_index: self.air_quality_index.unwrap_or_default(),
-            thermistor_temp: self.thermistor_temp.unwrap_or(f32::NAN),
-            image_path: self.image_path.unwrap_or_default(),
-        }
-    }
-}
-
+/// Starts the sleep tracker application. 
+/// 
+/// Creates a DataLogger, SensorReader, and AudioRecorder, and spawns two separate tasks
+/// for reading sensor data and recording audio.
+/// The tasks run concurrently and are cancelled when either the user interrupts the program.
+/// Times out after 10 hours if the user does not interrupt.
+/// 
+/// # Arguments
+/// 
+/// * `data_path` - The path to the directory where data will be stored.
+/// 
+/// 
+/// # Example
+/// 
+/// ```
+/// use sleep_recorder::sleep_tracker;
+/// 
+/// #[tokio::main]
+/// async fn main() {
+///    let data_path = "/path/to/data";
+///   if let Err(e) = sleep_tracker(data_path).await {
+///       eprintln!("Error: {}", e);
+///  }
+/// }
+/// ```
+/// # Errors
+/// 
+/// If any of the initialization steps fail, an error is returned.
+/// Individual failures of sensor or audio recording tasks are logged but do not cause the entire application to fail.
+/// 
 pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     // 1) Setup
     let cancel = CancellationToken::new();

@@ -1,3 +1,7 @@
+//! Module containing wrappers for various sensors used in the sleep recorder project.
+//! Most sensors are encapsulated within the SensorReader struct, which is responsible for initializing and measuring data from the sensors.
+//! Audio recording is handled separately, because it is "polled" at a different rate than the other sensors.
+
 use ens160_aq::Ens160;
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
 use tokio::process::Command;
@@ -9,14 +13,18 @@ use rscam::{Camera, Config};
 
 use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
 
-use crate::AudioRecording;
+use crate::data::{SleepData, AudioRecording};
 
-use super::SleepData;
-
+/// Wrapper for the BME280 sensor, providing temperature, humidity, and pressure measurements.
 pub struct BME280Wrapper {
     bme280: BME280<I2cdev>,
 }
 impl BME280Wrapper {
+    /// Creates a new instance of `BME280Wrapper`.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Result<Self, Box<dyn Error>>` - A result containing the initialized `BME280Wrapper` instance or an error.
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let i2c_bus = I2cdev::new("/dev/i2c-1")?;
         let mut delay = Delay;
@@ -24,6 +32,11 @@ impl BME280Wrapper {
         bme280.init(&mut delay)?;
         Ok(Self { bme280 })
     }
+    /// Measures and returns the current temperature, humidity, and pressure from the BME280 sensor.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Option<bme280::Measurements<linux_embedded_hal::I2CError>>` - A result containing the measurements or None if an error occurs.
     pub fn measure(&mut self) -> Option<bme280::Measurements<linux_embedded_hal::I2CError>> {
         let mut delay = Delay;
         self.bme280
@@ -33,11 +46,35 @@ impl BME280Wrapper {
     }
 }
 
+/// Wrapper for the camera, providing image capture functionality.
 pub struct CameraWrapper {
+    /// The camera instance used for capturing images.
     camera: Camera,
+    /// The directory where captured images will be stored.
     image_directory: String
 }
 impl CameraWrapper {
+    /// Creates a new instance of `CameraWrapper`.
+    ///
+    /// # Arguments
+    /// 
+    /// * `image_directory` - A string representing the directory where captured images will be stored.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Result<Self, Box<dyn Error>>` - A result containing the initialized `CameraWrapper` instance or an error.
+    /// 
+    /// # Errors
+    /// 
+    /// * Returns an error if the camera initialization fails or if the camera configuration fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```no_run
+    /// let camera = CameraWrapper::new("/path/to/images/".to_string())
+    ///    .expect("Failed to initialize camera");
+    /// ```
+    /// 
     pub fn new(image_directory: String) -> Result<Self, Box<dyn Error>> {
         let mut camera = Camera::new("/dev/video0")?;
         camera.start(&Config {
@@ -48,6 +85,16 @@ impl CameraWrapper {
         })?;
         Ok(Self { camera, image_directory })
     }
+    /// Captures an image from the camera and saves it to the specified directory.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `timestamp` - A string representing the timestamp to be included in the image filename.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Option<String>` - A result containing the path to the saved image or None if an error occurs.
+    /// 
     pub fn measure(&mut self, timestamp: &str) -> Option<String> {
         let frame = self.camera.capture().map_err(|e| {
             warn!("Camera capture error: {:?}", e);
@@ -62,10 +109,33 @@ impl CameraWrapper {
     }
 }
 
+/// Wrapper for the ENS160 sensor, providing air quality measurements.
 pub struct ENS160Wrapper {
     ens160: Ens160<I2cdev, Delay>,
 }
 impl ENS160Wrapper {
+    /// Creates a new instance of `ENS160Wrapper`.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `cal_temp` - Calibration temperature in Celsius.
+    /// * `cal_humidity` - Calibration humidity in percentage.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Result<Self, String>` - A result containing the initialized `ENS160Wrapper` instance or an error message.
+    /// 
+    /// # Errors
+    /// 
+    /// * Returns an error if the I2C bus initialization fails or if the ENS160 initialization fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```no_run
+    /// let ens160 = ENS160Wrapper::new(25.0, 50.0)
+    ///    .expect("Failed to initialize ENS160");
+    /// ```
+    /// 
     pub fn new(cal_temp: f32, cal_humidity: f32) -> Result<Self, String> {
         let i2c_bus = I2cdev::new("/dev/i2c-1").map_err(|e| format!("I2C Initialization error: {:?}", e))?;
         let delay = Delay;
@@ -75,6 +145,12 @@ impl ENS160Wrapper {
         std::thread::sleep(Duration::from_millis(500));  // wait for the sensor to stabilize
         Ok(Self { ens160 })
     }
+    /// Measures and returns the current air quality measurements from the ENS160 sensor.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Option<ens160_aq::data::Measurements>` - A result containing the measurements or None if an error occurs.
+    /// 
     pub fn measure(&mut self) -> Option<ens160_aq::data::Measurements> {
         let status = self.ens160.get_status().map_err(|e| {
             warn!("ENS160 status error: {:?}", e);
@@ -91,10 +167,13 @@ impl ENS160Wrapper {
     }
 }
 
+/// Thermistor wrapper for MCP342x ADC, with internal voltage-temperature conversion.
 pub struct ThermistorWrapper {
+    /// MCP342x ADC instance for reading thermistor voltage.
     adc: MCP342x<I2cdev>,
 }
 impl ThermistorWrapper {
+    /// Constants for thermistor voltage divider and Steinhart-Hart coefficients.
     const R_I: f32 = 3200.0; // Voltage divider resistor value in Ohms
     const V_SS: f32 = 5.3; // Supply voltage in Volts
     // Steinhart-Hart coefficients for the thermistor
@@ -103,6 +182,27 @@ impl ThermistorWrapper {
     const B : f64 = 0.0003753456578;
     const C : f64 = -0.0000004022657641;
 
+    /// Creates a new instance of `ThermistorWrapper`.
+    /// 
+    /// # Returns
+    /// 
+    /// * `Result<Self, Box<dyn Error>>` - A result containing the initialized `ThermistorWrapper` instance or an error.
+    /// 
+    /// # Errors
+    /// 
+    /// * Returns an error if the I2C bus initialization fails or if the ADC configuration fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```no_run
+    /// let thermistor = ThermistorWrapper::new()
+    ///    .expect("Failed to initialize thermistor");
+    /// ```
+    /// 
+    /// # Note
+    /// 
+    /// * The channel, voltage divider, and S-H coefficients are hardcoded for the current setup.
+    /// * The ADC is set to one-shot mode, and a delay is introduced to allow for measurement stabilization.
     pub fn new() -> Result<Self, Box<dyn Error>> {
         let i2c_bus = I2cdev::new("/dev/i2c-1")?;
         let mut adc = MCP342x::new(i2c_bus, 0x68);
@@ -128,15 +228,50 @@ impl ThermistorWrapper {
     }
 }
 
+/// Provides functionality to record audio using `ffmpeg`.
 pub struct AudioRecorder {
+    /// The directory where the recorded audio files will be stored.
     pub audio_directory: String,
+    /// The duration for which the audio will be recorded.
     pub recording_time: Duration,
+    /// The identifier of the audio capture device (e.g. plughw:1,0)
     pub device_id: String
 }
+ 
 impl AudioRecorder {
+    /// Creates a new instance of `AudioRecorder`.
+    ///
+    /// # Arguments
+    ///
+    /// * `audio_directory` - A string representing the directory where audio files will be stored.
+    /// * `recording_time` - A `Duration` representing how long the recording should last.
+    /// * `device_id` - A string representing the identifier of the audio capture device.
+    ///
+    /// # Returns
+    ///
+    /// An instance of `AudioRecorder` initialized with the specified parameters.
+
     pub fn new(audio_directory: String, recording_time: Duration, device_id: String) -> Self {
         Self { audio_directory, recording_time, device_id }
     }
+    /// Asynchronously records audio by spawning a `ffmpeg` process.
+    ///
+    /// This method constructs a file path using the current Unix timestamp and spawns an `ffmpeg`
+    /// command that captures audio from the device specified by `device_id`. The recording is saved
+    /// as an MP3 file in the specified `audio_directory`.
+    ///
+    /// # Returns
+    ///
+    /// On success, returns an `AudioRecording` instance containing the path to the recorded file,
+    /// the recording duration, and the start time. If an error occurs during time retrieval, process
+    /// spawning, or if `ffmpeg` exits with a non-success status, the method returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * The system time is earlier than the Unix epoch.
+    /// * There's an error spawning the `ffmpeg` process.
+    /// * The `ffmpeg` process exits with a non-success status.
     pub async fn async_audio_recording(&self) -> Result<AudioRecording, Box<dyn Error + Send + Sync>> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)?
@@ -166,19 +301,44 @@ impl AudioRecorder {
         Ok(AudioRecording {
             path: filepath,
             duration: self.recording_time,
-            start_time: timestamp,
+            start_time_s: timestamp,
         })
     }
 }
 
+/// Represents a collection of sensor wrappers for sleep data measurement. Only supports simultaneous polling of sensors.
 pub struct SensorReader {
+    /// - BME280: Used for collecting environmental measurements such as temperature and humidity.
     bme280: BME280Wrapper,
+    /// - ENS160: Initialized using temperature and humidity from BME280 for gas measurements (CO2 and TVOC)
     ens160: ENS160Wrapper,
+    /// - Thermistor: Utilized for ADC-based temperature measurements.
     thermistor: ThermistorWrapper,
+    /// - Camera: Configured with a directory path derived from the provided data_path to store images.=
     camera: CameraWrapper,
 }
 
 impl SensorReader {
+    /// Creates a new instance of SensorReader with all sensors initialized.
+    ///
+    /// This function initializes all relevant sensor wrappers
+    /// 
+    /// # Arguments
+    ///
+    /// * `data_path` - A string slice representing the base directory where camera images will be stored.
+    ///                This path is concatenated with "/images/" for the actual camera data storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initialization of any sensor (BME280, ENS160, Thermistor, or Camera) fails,
+    /// or if a measurement cannot be successfully obtained during the setup process.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let sensor_reader = SensorReader::new("/path/to/data")
+    ///     .expect("Failed to initialize sensor reader");
+    /// ```    
     #[tracing::instrument]
     pub fn new(data_path: &str) -> Result<Self, Box<dyn Error>> {
         let mut bme280 = BME280Wrapper::new()?;
@@ -197,6 +357,30 @@ impl SensorReader {
         Ok(Self { bme280, ens160, thermistor, camera })
     }
 
+    /// Measures and returns SensorData.
+    ///
+    /// This function fetches the current timestamp and attempts to gather sensor readings from the initialized sensors:
+    /// - BME280: Provides environmental measurements, added to SleepData if available.
+    /// - ENS160: Provides environmental data based on calibrated readings, added if available.
+    /// - Thermistor: Provides the temperature reading, added if available.
+    /// - Camera: Captures an image and includes the image path in SleepData if the measurement is successful.
+    ///
+    /// Sensor measurements that return None are simply skipped, allowing partial data to be collected.
+    /// The constructed SleepData encapsulates the timestamp along with all successful sensor measurements.
+    ///
+    /// # Returns
+    ///
+    /// * Ok(SleepData) - When all sensor measurements (or the available ones) are successfully collected.
+    /// * Err(SystemTimeError) - If acquiring the current system time fails (e.g., if the system clock is before UNIX_EPOCH).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let mut sensor_reader = SensorReader::new("/path/to/data")
+    ///     .expect("Failed to initialize sensor reader");
+    /// let sleep_data = sensor_reader.measure()
+    ///     .expect("Failed to collect sleep data");
+    /// ```
     #[tracing::instrument(skip(self))]
     pub fn measure(&mut self) -> Result<SleepData, SystemTimeError> {
         let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
