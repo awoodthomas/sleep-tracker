@@ -181,7 +181,7 @@ pub struct SleepDataLogger {
     /// HDF5 file handle.
     file: File,
     /// Name of the HDF5 group for this session.
-    group_name: String,
+    pub group_name: String,
     /// Map of dataset names to their corresponding SleepField functions.
     data_map: HashMap<&'static str, SleepField>,
 }

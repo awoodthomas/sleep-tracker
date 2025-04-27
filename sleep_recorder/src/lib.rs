@@ -55,13 +55,13 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     let data_logger   = Arc::new(Mutex::new(
         SleepDataLogger::new(data_path, "sleep_data.h5")?));
     let sensor_reader = Arc::new(Mutex::new(
-        SensorReader::new(data_path)?));
+        SensorReader::new(data_path, &data_logger.lock().await.group_name)?));
     let audio_recorder = Arc::new(
         AudioRecorder::new(
-            format!("{}/audio", data_path),
-            Duration::from_secs(60*30),
+            &format!("{}/{}/audio/", data_path, &data_logger.lock().await.group_name),
+            Duration::from_secs(30),
             "plughw:3,0".to_string(),
-        ));
+        )?);
 
     // 2) Spawn the sensor‐polling task
     let mut sensor_handle = tokio::spawn(sensor_loop(sensor_cancel, data_logger.clone(), sensor_reader.clone()));

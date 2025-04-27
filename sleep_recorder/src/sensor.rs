@@ -11,7 +11,7 @@ use linux_embedded_hal::{Delay, I2cdev};
 use bme280::i2c::BME280;
 use rscam::{Camera, Config};
 
-use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
+use std::{error::Error, string, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
 
 use crate::data::{SleepData, AudioRecording};
 
@@ -75,7 +75,7 @@ impl CameraWrapper {
     ///    .expect("Failed to initialize camera");
     /// ```
     /// 
-    pub fn new(image_directory: String) -> Result<Self, Box<dyn Error>> {
+    pub fn new(image_directory: &str) -> Result<Self, Box<dyn Error>> {
         let mut camera = Camera::new("/dev/video0")?;
         camera.start(&Config {
             interval: (1, 30),          
@@ -83,7 +83,8 @@ impl CameraWrapper {
             format: b"MJPG",             // MJPEG is widely supported
             ..Default::default()
         })?;
-        Ok(Self { camera, image_directory })
+        std::fs::create_dir_all(image_directory)?;
+        Ok(Self { camera, image_directory: image_directory.to_string() })
     }
     /// Captures an image from the camera and saves it to the specified directory.
     /// 
@@ -251,8 +252,9 @@ impl AudioRecorder {
     ///
     /// An instance of `AudioRecorder` initialized with the specified parameters.
 
-    pub fn new(audio_directory: String, recording_time: Duration, device_id: String) -> Self {
-        Self { audio_directory, recording_time, device_id }
+    pub fn new(audio_directory: &str, recording_time: Duration, device_id: String) -> Result<Self, Box<dyn Error>> {
+        std::fs::create_dir_all(audio_directory)?;
+        Ok(Self { audio_directory: audio_directory.to_string(), recording_time, device_id })
     }
     /// Asynchronously records audio by spawning a `ffmpeg` process.
     ///
@@ -341,7 +343,7 @@ impl SensorReader {
     ///     .expect("Failed to initialize sensor reader");
     /// ```    
     #[tracing::instrument]
-    pub fn new(data_path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(data_path: &str, group_name: &str) -> Result<Self, Box<dyn Error>> {
         let mut bme280 = BME280Wrapper::new()?;
         info!("BME280 initialized successfully.");
 
@@ -352,7 +354,7 @@ impl SensorReader {
         let thermistor = ThermistorWrapper::new()?;
         info!("Thermistor ADC initialized successfully.");
 
-        let camera = CameraWrapper::new(data_path.to_string() + "/images/" )?;            
+        let camera = CameraWrapper::new(&format!("{}/{}/images/", data_path, group_name))?;            
         info!("Camera initialized successfully.");
         
         Ok(Self { bme280, ens160, thermistor, camera })
