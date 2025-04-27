@@ -16,6 +16,7 @@ use std::error::Error;
 use std::result::Result;
 
 use chrono::Local;
+use hdf5::types::VarLenArray;
 use hdf5::{types::VarLenUnicode, File, H5Type};
 
 use tracing::{info, warn};
@@ -125,25 +126,20 @@ pub struct AudioRecording {
     /// Timestamp of the audio recording in seconds since UNIX epoch.
     pub start_time_s: u64,
 }
-
-#[derive(Debug)]
-enum SleepField {
-    U64(fn(&SleepData) -> u64),
-    U16(fn(&SleepData) -> u16),
-    F32(fn(&SleepData) -> f32),
-    String(fn(&SleepData) -> VarLenUnicode),
-}
-
 /// HDF5-compatible metadata for audio recordings. Implements `from(AudioRecording)`
 #[derive(H5Type, Clone, Debug)]
 #[repr(C)] // important: makes memory layout compatible
-struct H5AudioMetadata {
+pub struct H5AudioMetadata {
     /// Timestamp of the audio recording in seconds since UNIX epoch.
-    start_time_s: u64,
+    pub start_time_s: u64,
     /// Duration of the audio recording in seconds.
-    duration_s: u64,
+    pub duration_s: u64,
     /// Path to the audio file.
-    path: VarLenUnicode,
+    pub path: VarLenUnicode,
+    /// Audio RMS volume in dB.
+    pub audio_rms_db: VarLenArray<f32>,
+    /// RMS volume timestamps in seconds since UNIX epoch.
+    pub audio_rms_t_s: VarLenArray<u64>,
 }
 
 impl From<AudioRecording> for H5AudioMetadata {
@@ -153,8 +149,18 @@ impl From<AudioRecording> for H5AudioMetadata {
             // Assuming AudioRecording has a duration field.
             duration_s: rec.duration.as_secs(),
             path: VarLenUnicode::from_str(&rec.path).unwrap_or_default(),
+            audio_rms_db: VarLenArray::from_slice(&[]),
+            audio_rms_t_s: VarLenArray::from_slice(&[]),
         }
     }
+}
+
+#[derive(Debug)]
+enum SleepField {
+    U64(fn(&SleepData) -> u64),
+    U16(fn(&SleepData) -> u16),
+    F32(fn(&SleepData) -> f32),
+    String(fn(&SleepData) -> VarLenUnicode),
 }
 
 /// Logger for sleep data. 
@@ -269,11 +275,6 @@ impl SleepDataLogger {
     }
 
     /// Flushes the buffered data to the HDF5 file.
-    /// 
-    /// # Returns
-    ///
-    /// A `Result` indicating success or failure.
-    ///
     #[tracing::instrument(skip(self))]
     pub fn flush(&mut self) -> Result<(), Box<dyn Error>> {
         let buffer = std::mem::take(&mut self.buffer);
@@ -320,8 +321,6 @@ impl SleepDataLogger {
 /// * `dataset_name` - The name of the dataset to append to.
 /// * `new_vals` - The new values to append to the dataset.
 ///
-/// # Returns
-/// A `Result` indicating success or failure.
 /// # Errors
 /// If the dataset does not exist or if there is an error during resizing or writing.
 fn append_to_dataset<T: H5Type>(group: &hdf5::Group, dataset_name: &str, new_vals: &[T]) -> hdf5::Result<()> {

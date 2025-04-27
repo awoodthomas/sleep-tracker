@@ -14,7 +14,7 @@ use sensor::{AudioRecorder, SensorReader};
 
 pub mod sensor;
 pub mod data;
-// pub mod audio_analysis;
+pub mod audio_analysis;
 
 /// Starts the sleep tracker application. 
 /// 
@@ -60,7 +60,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
         AudioRecorder::new(
             format!("{}/audio", data_path),
             Duration::from_secs(60*30),
-            "plughw:1,0".to_string(),
+            "plughw:3,0".to_string(),
         ));
 
     // 2) Spawn the sensor‐polling task
