@@ -1,7 +1,7 @@
 use std::env;
 
 use tracing::info;
-use sleep_recorder::audio_analysis::{analyze_audio_entries, block_rms, decode_mp3};
+use sleep_recorder::audio_analysis::analyze_audio_entries;
 
 
 #[tokio::main]
@@ -15,12 +15,5 @@ async fn main() {
 
     
     info!("Starting sleep_recorder analysis");
-    // let audio_path = "/mnt/usb/sleep_data/audio/audio_1745613034.mp3";
-    // let samples = decode_mp3(audio_path).expect("Failed to decode mp3");
-    // info!("Sample length: {}", samples.len());
-    // let window_size_s = 5;
-    // let block_rms = block_rms(samples, window_size_s);
-    // info!("Block RMS: {:?}", block_rms.len());
-    analyze_audio_entries(&data_path, "sleep_data.h5", "2025-04-17_23-01-13").expect("Failed to analyze audio entries");
-
+    analyze_audio_entries(&data_path, "sleep_data.h5", "2025-04-28_09-19-00").expect("Failed to analyze audio entries");
 }

@@ -62,9 +62,12 @@ def get_data():
                 for i in range(len(audio_ds)):
                     entry = audio_ds[i]
                     audio_data.append({
-                        "start_time": int(entry["start_time"]),
-                        "duration": int(entry["duration"]),
-                        "path": str(entry["path"].decode() if isinstance(entry["path"], bytes) else entry["path"])
+                        "start_time_s": int(entry["start_time_s"]),
+                        "duration_s": int(entry["duration_s"]),
+                        "path": str(entry["path"].decode() if isinstance(entry["path"], bytes) else entry["path"]),
+                        "audio_rms_db": entry["audio_rms_db"][:].astype(float).tolist(),
+                        "audio_rms_t_s": entry["audio_rms_t_s"][:].astype(int).tolist(),
+                        "audio_rms_rel_t_s": (entry["audio_rms_t_s"] - entry["start_time_s"])[:].astype(int).tolist(),
                     })
                 data["audio"] = audio_data
             else:
@@ -104,4 +107,4 @@ def preview_image():
 
 if __name__ == "__main__":
     os.makedirs("static", exist_ok=True)
-    app.run(host="0.0.0.0", port=8000)
+    app.run(host="0.0.0.0", port=8001)

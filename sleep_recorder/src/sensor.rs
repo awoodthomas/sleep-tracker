@@ -11,7 +11,7 @@ use linux_embedded_hal::{Delay, I2cdev};
 use bme280::i2c::BME280;
 use rscam::{Camera, Config};
 
-use std::{error::Error, string, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
+use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
 
 use crate::data::{SleepData, AudioRecording};
 
@@ -279,7 +279,7 @@ impl AudioRecorder {
             .duration_since(UNIX_EPOCH)?
             .as_secs();
         
-        let filepath = format!("{}/audio_{}.mp3", &self.audio_directory, timestamp);
+        let filepath = format!("{}audio_{}.mp3", &self.audio_directory, timestamp);
 
         // spawn ffmpeg and wait asynchronously
         let mut child = Command::new("ffmpeg")

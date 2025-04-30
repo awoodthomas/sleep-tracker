@@ -49,14 +49,12 @@
         .then(r => r.json())
         .then(data => {
           console.log("Data keys:", Object.keys(data)); // sanity check
-          const OFFSET_MINUTES = 480; // UTC+8 offset in minutes
+          const time = data.timestamp.map(ts => new Date(ts * 1000));
 
-          const time = data.timestamp.map(ts => new Date((ts - OFFSET_MINUTES * 60) * 1000).toISOString());
 
           function makeTrace(values, label, unit) {
             const max = Math.max(...values);
             const min = Math.min(...values) / 2;
-            console.log(label, "min: ", min, "max: ", max);
 
             const normalized = values.map(v => v === null ? null : (v - min) / (max - min));
             return {
@@ -80,10 +78,59 @@
             makeTrace(data.air_quality_index, "AQI", "")
           ];
 
+          function makeAudioTrace(timestamp, reltime, dB, label) {
+            const time = timestamp.map(ts => new Date(ts * 1000));
+
+            // Relative time is in milliseconds, display as MM:SS
+            const reltimeStr = reltime.map(ts => {
+              if (ts === null) return null;
+              const date = new Date(ts * 1000);
+              return `${String(date.getUTCMinutes()).padStart(2, '0')}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
+            });
+            const startTimeStr = new Date(timestamp[0] * 1000).toLocaleTimeString("en-US", {
+              hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+            });
+
+            const max = Math.max(Math.max(...dB), -5);
+            const min = Math.min(...dB);
+
+            const normalized = dB.map(v => v === null ? null : (v - min) / (max - min));
+            const metadata = dB.map((element, index) => [element, reltimeStr[index]]);
+            return {
+              x: time,
+              y: normalized,
+              customdata: metadata,
+              name: `${label}`,
+              type: "bar",
+              bargap: 0,
+              width: 5000,
+              color: "gray",
+              showlegend: false,
+              hovertemplate: `${startTimeStr} + %{customdata[1]}: %{customdata[0]:.2f} dBFS<extra></extra><br>${label}`,
+            };
+          }
+
+          const audioSelect = document.getElementById("audio-select");
+          audioSelect.innerHTML = '<option value="">-- Select --</option>'; // reset
+          // [], { hour: '2-digit', minute: '2-digit' }
+          data.audio.forEach(entry => {
+            const label = `Audio @ ${new Date(entry.start_time_s * 1000).toLocaleString()} (${Math.round(entry.duration_s)}s)`;
+            const option = document.createElement("option");
+            option.value = entry.path;
+            option.textContent = label;
+            audioSelect.appendChild(option);
+            traces.push(makeAudioTrace(entry.audio_rms_t_s, entry.audio_rms_rel_t_s, entry.audio_rms_db, entry.path))
+          });
+
+
           const layout = {
             title: "Sensor Readings",
             height: 600,
-            xaxis: { title: "Time (Local)", tickformat: "%I:%M %p" },
+            xaxis: {
+              title: "Time (Local)",
+              tickformat: "%I:%M %p",
+              hoverformat: "%I:%M:%S %p"
+            },
             yaxis: {
               showticklabels: true,
               showgrid: false,
@@ -96,6 +143,25 @@
 
           document.getElementById("plots").on("plotly_click", (e) => {
             const index = e.points[0].pointIndex;
+            const timestamp = e.points[0].x;
+            const audioSelect = document.getElementById("audio-select");
+            // Figure out the audio option that is nearest in time & before the clicked point, 
+            // and select it in the dropdown
+            const audioOptions = Array.from(audioSelect.options).slice(1); // skip the first option
+            let closestOption = null;
+            let closestDiff = Infinity;
+            audioOptions.forEach(option => {
+              const audioTime = new Date(option.textContent.split("@")[1].split("(")[0].trim()).toISOString();
+              const diff = new Date(timestamp) - new Date(audioTime);
+              if (diff < closestDiff && diff >= 0) { // only consider future timestamps
+                closestDiff = diff;
+                closestOption = option;
+              }
+            });
+            if (closestOption) {
+                audioSelect.value = closestOption.value;
+                audioSelect.dispatchEvent(new Event('change'));
+            }
             const path = data.image_path[index];
             if (!path) return;
             fetch(`/preview?path=${encodeURIComponent(path)}`)
@@ -106,29 +172,61 @@
                 document.getElementById("preview").hidden = false;
               });
           });
-          const audioSelect = document.getElementById("audio-select");
-          audioSelect.innerHTML = '<option value="">-- Select --</option>'; // reset
-
-          data.audio.forEach(entry => {
-            const label = `Audio @ ${new Date(entry.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${Math.round(entry.duration)}s)`;
-            const option = document.createElement("option");
-            option.value = entry.path;
-            option.textContent = label;
-            audioSelect.appendChild(option);
-          });
         });
       }
 
       function loadAudio(path) {
         if (!path) return;
 
+        // Create and show a loading progress bar
+        const progressBar = document.createElement('div');
+        progressBar.id = 'audio-progress';
+        progressBar.style.width = '100%';
+        progressBar.style.height = '4px';
+        progressBar.style.backgroundColor = '#f3f3f3';
+        progressBar.style.position = 'relative';
+        progressBar.style.marginTop = '10px';
+        progressBar.innerHTML = '<div id="audio-progress-bar" style="width: 0%; height: 100%; background-color: #4caf50;"></div>';
+        document.getElementById("audio-player").parentElement.appendChild(progressBar);
+
         fetch(`/preview?path=${encodeURIComponent(path)}`)
-          .then(res => res.blob())
+          .then(res => {
+            const contentLength = res.headers.get('Content-Length');
+            if (!contentLength) {
+              return res.blob(); // fallback if no content length
+            }
+            const total = parseInt(contentLength, 10);
+            let loaded = 0;
+            const reader = res.body.getReader();
+            return new ReadableStream({
+              start(controller) {
+          function push() {
+            reader.read().then(({done, value}) => {
+              if (done) {
+                controller.close();
+                return;
+              }
+              loaded += value.length;
+              const progress = Math.round((loaded / total) * 100);
+              document.getElementById("audio-progress-bar").style.width = progress + '%';
+              controller.enqueue(value);
+              push();
+            });
+          }
+          push();
+              }
+            });
+          })
+          .then(stream => new Response(stream))
+          .then(response => response.blob())
           .then(blob => {
             const audio = document.getElementById("audio-player");
             audio.src = URL.createObjectURL(blob);
             audio.style.display = "block";
             audio.load(); // reset
+            // Remove the progress bar once loading is complete
+            const pb = document.getElementById("audio-progress");
+            if (pb) pb.remove();
           });
       }
 

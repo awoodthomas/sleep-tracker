@@ -139,6 +139,7 @@ async fn audio_loop(
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
+                // TODO: save interrupted audio recording in the dataset
                 info!("audio_loop: shutdown");
                 break;
             }
