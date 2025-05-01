@@ -24,7 +24,7 @@ pub fn analyze_motion(data_path: &str, file_name: &str, group_name: &str) -> Res
     info!("Image dataset shape: {:?}, size: {:?}", image_dataset.shape(), image_dataset.size());
 
     let mut last_image = None;
-    let mut motions: Vec<f32> = vec![f32::NAN; image_paths.len() as usize];
+    let mut motions: Vec<f32> = vec![f32::NAN; image_paths.len()];
     for (index, entry) in image_paths.iter().enumerate() {
         let path = entry.to_string();
         let current_image: image::ImageBuffer<image::Luma<u8>, Vec<u8>> = image::open(&path).map_err(|e| format!("Failed to open image at {} with error {}", path, e))?.into_luma8();

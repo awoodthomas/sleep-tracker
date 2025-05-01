@@ -141,7 +141,7 @@ async fn audio_loop(
         match recorder.async_audio_recording().await {
             Ok(rec) => {
                 let path = rec.path.clone();
-                if let Ok(_) = data_logger.lock().await.add_audio_entry(rec) {
+                if data_logger.lock().await.add_audio_entry(rec).is_ok() {
                     info!("audio saved to {:?}", path);
                 }
             }

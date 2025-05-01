@@ -127,11 +127,11 @@ impl CameraWrapper {
         let gray_image = image.to_luma8();
         let mut motion = None;
         if let Some(last_image) = &self.last_image {
-            motion = Some(crate::image_analysis::frame_difference(&gray_image, &last_image));
+            motion = Some(crate::image_analysis::frame_difference(&gray_image, last_image));
         }
         self.last_image = Some(gray_image);
 
-        return Ok(CameraAndMotionResult { image_path, motion });
+        Ok(CameraAndMotionResult { image_path, motion })
     }
 
     fn timestamp_image_mut(image: &mut RgbImage, timestamp: u64) -> Result<(), Box<dyn Error>> {
@@ -140,7 +140,10 @@ impl CameraWrapper {
         let font = FontArc::try_from_vec(font_data)?;
     
         // Format timestamp into 12-hour format
-        let local_time = Local.timestamp_opt(timestamp as i64, 0).single().ok_or(format!("Could not generate local timestamp"))?;
+        let local_time = Local
+            .timestamp_opt(timestamp as i64, 0)
+            .single()
+            .ok_or("Could not generate local timestamp".to_string())?;
         let formatted = local_time.format("%I:%M:%S %p").to_string();
         
         // Draw timestamp onto image
@@ -291,7 +294,6 @@ impl AudioRecorder {
     /// # Returns
     ///
     /// An instance of `AudioRecorder` initialized with the specified parameters.
-
     pub fn new(audio_directory: &str, recording_time: Duration, device_id: String) -> Result<Self, Box<dyn Error>> {
         std::fs::create_dir_all(audio_directory)?;
         Ok(Self { audio_directory: audio_directory.to_string(), recording_time, device_id })

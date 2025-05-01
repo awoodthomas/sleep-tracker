@@ -47,7 +47,7 @@ pub fn analyze_audio_entries(data_path: &str, file_name: &str, group_name: &str)
         let samples = decode_mp3(&audio_path)?;
         let volume_db = window_volume_dbfs(samples, WINDOW_SIZE_S);
         let timestamps = (0..volume_db.len() as u64)
-            .map(|i| (entry.start_time_s + i * WINDOW_SIZE_S as u64) as u64)
+            .map(|i| entry.start_time_s + i * WINDOW_SIZE_S as u64)
             .collect::<Vec<u64>>();
         info!("Processed {} samples from {}", volume_db.len(), audio_path);
         info!("Timestamps: {:?}", timestamps);
@@ -124,10 +124,10 @@ fn window_volume_dbfs(samples: Vec<i16>, window_size_s: usize) -> Vec<f32> {
 
     let rms_downsample: Vec<f32> = normalized_samples
         .chunks(CHUNK)
-        .map(|w| rms_normalized(w))
+        .map(rms_normalized)
         .collect();
     
-    let chunks_per_time: usize = (SAMPLE_RATE * window_size_s) as usize / CHUNK;
+    let chunks_per_time: usize = SAMPLE_RATE * window_size_s / CHUNK;
     let db_windows: Vec<f32> = rms_downsample
         .chunks(chunks_per_time)
         .filter(|w| w.len() == chunks_per_time) // Throw out incomplete chunks
