@@ -61,7 +61,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
         AudioRecorder::new(
             &format!("{}/{}/audio/", data_path, &data_logger.lock().await.group_name),
             Duration::from_secs(30),
-            "plughw:3,0".to_string(),
+            "plughw:1,0".to_string(),
         )?);
 
     // 2) Spawn the sensor‐polling task

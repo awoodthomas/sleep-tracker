@@ -19,3 +19,5 @@ dasp = "0.11.0"
 test-log = "0.2.17"
 minimp3 = { git = "https://github.com/germangb/minimp3-rs", rev = "refs/pull/44/head" }
 image = "0.25.6"
+imageproc = "0.25.0"
+ab_glyph = "0.2.29"

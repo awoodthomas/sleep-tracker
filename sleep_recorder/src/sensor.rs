@@ -2,8 +2,10 @@
 //! Most sensors are encapsulated within the SensorReader struct, which is responsible for initializing and measuring data from the sensors.
 //! Audio recording is handled separately, because it is "polled" at a different rate than the other sensors.
 
+use ab_glyph::{FontArc, PxScale};
+use chrono::{Local, TimeZone};
 use ens160_aq::Ens160;
-use image::GrayImage;
+use image::{GrayImage, ImageFormat, RgbImage};
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -12,7 +14,9 @@ use linux_embedded_hal::{Delay, I2cdev};
 use bme280::i2c::BME280;
 use rscam::{Camera, Config};
 
-use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
+use imageproc::drawing::draw_text_mut;
+
+use std::{error::Error, fs::File, io::BufWriter, path::Path, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
 
 use crate::data::{AudioRecording, CameraAndMotionResult, SleepData};
 
@@ -93,30 +97,52 @@ impl CameraWrapper {
     /// 
     /// # Arguments
     /// 
-    /// * `timestamp` - A string representing the timestamp to be included in the image filename.
+    /// * `timestamp` - POSIX time. Will be appended to file name
     /// 
     /// # Returns
     /// 
     /// * `Result<CameraAndMotionResult>` - A result containing the path to the saved image and difference from the last image
     /// 
-    pub fn measure(&mut self, timestamp: &str) -> Result<CameraAndMotionResult, Box<dyn Error>> {
+    pub fn measure(&mut self, timestamp: u64) -> Result<CameraAndMotionResult, Box<dyn Error>> {
         let frame = self.camera.capture()?;
     
-        let image_path = format!("{0}image_{timestamp}.jpg", self.image_directory);
-        std::fs::write(&image_path, &*frame)?;
-
+        let image_path = format!("{}/image_{}.jpg", self.image_directory, timestamp);
         let image = image::load_from_memory(&frame)?;
+        let mut rgb_img = image.to_rgb8();
 
+        // Add a timestamp to the image
+        Self::timestamp_image_mut(&mut rgb_img, timestamp)?;
+    
+        // Save image
+        let path = Path::new(&image_path);
+        let mut file = BufWriter::new(File::create(path)?);
+        rgb_img
+            .write_to(&mut file, ImageFormat::Jpeg)?;
+
+        // Measure motion since last frame
         let gray_image = image.to_luma8();
-
         let mut motion = None;
-
         if let Some(last_image) = &self.last_image {
             motion = Some(crate::image_analysis::frame_difference(&gray_image, &last_image));
         }
         self.last_image = Some(gray_image);
 
         return Ok(CameraAndMotionResult { image_path, motion });
+    }
+
+    fn timestamp_image_mut(image: &mut RgbImage, timestamp: u64) -> Result<(), Box<dyn Error>> {
+        // Load font
+        let font_data = std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")?;
+        let font = FontArc::try_from_vec(font_data)?;
+    
+        // Format timestamp into 12-hour format
+        let local_time = Local.timestamp_opt(timestamp as i64, 0).single().ok_or(format!("Could not generate local timestamp"))?;
+        let formatted = local_time.format("%I:%M:%S %p").to_string();
+        
+        // Draw timestamp onto image
+        let scale = PxScale::from(36.0);
+        draw_text_mut(image, image::Rgb([255, 255, 0]), 20, 20, scale, &font, &formatted);
+        Ok(())
     }
 }
 
@@ -408,7 +434,7 @@ impl SensorReader {
         if let Some(thermistor_measurement) = self.thermistor.measure() {
             builder = builder.with_thermistor_temp(thermistor_measurement);
         }
-        if let Ok(camera_result) = self.camera.measure(&timestamp.to_string()) {
+        if let Ok(camera_result) = self.camera.measure(timestamp) {
             builder = builder.with_camera_result(camera_result);
         }
 
