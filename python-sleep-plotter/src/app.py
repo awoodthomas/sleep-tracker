@@ -37,16 +37,7 @@ def get_data():
     try:
         with h5py.File(HDF5_PATH, "r") as f:
             group = f[group_name]
-            # timestamps = g["timestamp"][:].tolist()
-            # temperature = g["temperature"][:].tolist()
-            # pressures = g["pressure"][:].tolist()
-            # humidity = g["humidity"][:].tolist()
-            # co2 = g["co2eq_ppm"][:].tolist()
-            # tvoc = g["tvoc_ppb"][:].tolist()
-            # aqi = g["air_quality_index"][:].tolist()
-            # thermistor_temp = g["thermistor_temp"][:].tolist()
-            # image_paths = g.get("image_path", [])[:].astype(str).tolist()
-            for key in ["timestamp", "temperature", "humidity", "co2eq_ppm", "tvoc_ppb", "air_quality_index", "thermistor_temp", "image_path"]:
+            for key in ["timestamp", "temperature", "humidity", "co2eq_ppm", "tvoc_ppb", "air_quality_index", "thermistor_temp", "image_path", "image_motion"]:
                 if key in group:
                     dataset = group[key]
                     if dataset.dtype.kind in {'u', 'i'}:
@@ -61,14 +52,16 @@ def get_data():
                 audio_data = []
                 for i in range(len(audio_ds)):
                     entry = audio_ds[i]
-                    audio_data.append({
+                    fields = {
                         "start_time_s": int(entry["start_time_s"]),
                         "duration_s": int(entry["duration_s"]),
                         "path": str(entry["path"].decode() if isinstance(entry["path"], bytes) else entry["path"]),
-                        "audio_rms_db": entry["audio_rms_db"][:].astype(float).tolist(),
-                        "audio_rms_t_s": entry["audio_rms_t_s"][:].astype(int).tolist(),
-                        "audio_rms_rel_t_s": (entry["audio_rms_t_s"] - entry["start_time_s"])[:].astype(int).tolist(),
-                    })
+                    }
+                    if "audio_rms_db" in audio_ds.dtype.names:
+                        fields["audio_rms_db"] = entry["audio_rms_db"].tolist()
+                        fields["audio_rms_t_s"] = entry["audio_rms_t_s"].tolist()
+                        fields["audio_rms_rel_t_s"] = (entry["audio_rms_t_s"] - entry["start_time_s"]).tolist()
+                    audio_data.append(fields)
                 data["audio"] = audio_data
             else:
                 data["audio"] = []
@@ -76,6 +69,7 @@ def get_data():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
     
+    # Convert to Fahrenheit if the data is present
     if "temperature" in data:
         data["temperature"] = [None if x is None else (x * 9 / 5 + 32) for x in data["temperature"]]
     if "thermistor_temp" in data:
@@ -83,19 +77,6 @@ def get_data():
 
     return jsonify(data)       
 
-    # print(g, "min: ", min(tvoc), "max: ", max(tvoc));
-
-    # return jsonify({
-    #     "timestamp": timestamps,
-    #     "temperature": temperature,
-    #     "pressure": pressures,
-    #     "humidity": humidity,
-    #     "co2eq_ppm": co2,
-    #     "tvoc_ppb": tvoc,
-    #     "air_quality_index": aqi,
-    #     "thermistor_temp": thermistor_temp,
-    #     "image_paths": image_paths
-    # })
 
 @app.route("/preview")
 def preview_image():

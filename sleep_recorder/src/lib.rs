@@ -15,6 +15,7 @@ use sensor::{AudioRecorder, SensorReader};
 pub mod sensor;
 pub mod data;
 pub mod audio_analysis;
+pub mod image_analysis;
 
 /// Starts the sleep tracker application. 
 /// 

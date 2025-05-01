@@ -17,6 +17,7 @@ use std::result::Result;
 
 use chrono::Local;
 use hdf5::types::VarLenArray;
+use hdf5::Dataset;
 use hdf5::{types::VarLenUnicode, File, H5Type};
 
 use tracing::{info, warn};
@@ -42,6 +43,8 @@ pub struct SleepData {
     pub thermistor_temp_c: f32,
     /// Path to the image file.
     pub image_path: String,
+    /// Quantification of image motion
+    pub image_motion: f32,
 }
 impl SleepData {
     /// Creates a new `SleepDataBuilder` instance with the given timestamp.
@@ -67,6 +70,7 @@ pub struct SleepDataBuilder {
     air_quality_index: Option<u16>,
     thermistor_temp_c: Option<f32>,
     image_path: Option<String>,
+    image_motion: Option<f32>
 }
 
 impl SleepDataBuilder {
@@ -91,8 +95,9 @@ impl SleepDataBuilder {
         self
     }
 
-    pub fn with_image_path(mut self, image_path: String) -> Self {
-        self.image_path = Some(image_path);
+    pub fn with_camera_result(mut self, camera_result: CameraAndMotionResult) -> Self {
+        self.image_path = Some(camera_result.image_path);
+        self.image_motion = camera_result.motion;
         self
     }
 
@@ -112,8 +117,14 @@ impl SleepDataBuilder {
             air_quality_index: self.air_quality_index.unwrap_or_default(),
             thermistor_temp_c: self.thermistor_temp_c.unwrap_or(f32::NAN),
             image_path: self.image_path.unwrap_or_default(),
+            image_motion: self.image_motion.unwrap_or(f32::NAN),
         }
     }
+}
+
+pub struct CameraAndMotionResult {
+    pub image_path: String,
+    pub motion: Option<f32>,
 }
 
 /// Data entry for an audio recording session.
@@ -199,14 +210,14 @@ impl SleepDataLogger {
     /// Creates a new HDF5 dataset for the given type and name.
     /// The dataset is created with chunking and compression enabled.
     /// The dataset is resizable and initially empty.
-    fn generate_dataset<T: H5Type>(group: &hdf5::Group, name: &str) -> Result<(), Box<dyn Error>> {
+    pub fn generate_dataset<T: H5Type>(group: &hdf5::Group, name: &str) -> Result<Dataset, Box<dyn Error>> {
         group.new_dataset_builder()
             .chunk(1024)
             .deflate(6)
             .empty::<T>()
             .shape(hdf5::SimpleExtents::resizable([0]))
-            .create(name)?;
-        Ok(())
+            .create(name)
+            .map_err(|e| format!("Failed to create dataset {}: {}", name, e).into())
     }
 
     /// Creates a new `SleepDataLogger` instance.
@@ -232,6 +243,7 @@ impl SleepDataLogger {
         data_map.insert("air_quality_index", SleepField::U16(|d| d.air_quality_index));
         data_map.insert("thermistor_temp", SleepField::F32(|d| d.thermistor_temp_c));
         data_map.insert("image_path", SleepField::String(|d| VarLenUnicode::from_str(&d.image_path).unwrap_or_default()));
+        data_map.insert("image_motion", SleepField::F32(|d| d.image_motion));
     
         for (key, sleep_field) in data_map.iter() {
             match sleep_field {

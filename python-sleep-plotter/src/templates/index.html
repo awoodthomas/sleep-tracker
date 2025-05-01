@@ -53,10 +53,14 @@
 
 
           function makeTrace(values, label, unit) {
-            const max = Math.max(...values);
-            const min = Math.min(...values) / 2;
+            // If "values" is undefined, return an empty trace
+            let normalized = [];
+            if (values !== undefined) {
+              const max = Math.max(...values);
+              const min = Math.min(...values) / 2;
 
-            const normalized = values.map(v => v === null ? null : (v - min) / (max - min));
+              normalized = values.map(v => v === null ? null : (v - min) / (max - min));
+            }
             return {
               x: time,
               y: normalized,
@@ -68,14 +72,14 @@
               hovertemplate: `${label}: %{customdata:.2f} ${unit}<extra></extra>`
             };
           }
-
           const traces = [
             makeTrace(data.temperature, "Temp", "°F"),
             makeTrace(data.thermistor_temp, "Thermistor", "°F"),
             makeTrace(data.humidity, "Humidity", "%"),
             makeTrace(data.co2eq_ppm, "CO2", "ppm"),
             makeTrace(data.tvoc_ppb, "TVOC", "ppb"),
-            makeTrace(data.air_quality_index, "AQI", "")
+            makeTrace(data.air_quality_index, "AQI", ""),
+            makeTrace(data.image_motion, "Motion", "")
           ];
 
           function makeAudioTrace(timestamp, reltime, dB, label) {
@@ -114,12 +118,14 @@
           audioSelect.innerHTML = '<option value="">-- Select --</option>'; // reset
           // [], { hour: '2-digit', minute: '2-digit' }
           data.audio.forEach(entry => {
-            const label = `Audio @ ${new Date(entry.start_time_s * 1000).toLocaleString()} (${Math.round(entry.duration_s)}s)`;
-            const option = document.createElement("option");
-            option.value = entry.path;
-            option.textContent = label;
-            audioSelect.appendChild(option);
-            traces.push(makeAudioTrace(entry.audio_rms_t_s, entry.audio_rms_rel_t_s, entry.audio_rms_db, entry.path))
+            if (entry.audio_rms_db !== undefined) {
+              const label = `Audio @ ${new Date(entry.start_time_s * 1000).toLocaleString()} (${Math.round(entry.duration_s)}s)`;
+              const option = document.createElement("option");
+              option.value = entry.path;
+              option.textContent = label;
+              audioSelect.appendChild(option);
+              traces.push(makeAudioTrace(entry.audio_rms_t_s, entry.audio_rms_rel_t_s, entry.audio_rms_db, entry.path))
+            }
           });
 
 
@@ -139,6 +145,7 @@
             }
           };
 
+          console.log("Plotting data:", traces);
           Plotly.newPlot("plots", traces, layout);
 
           document.getElementById("plots").on("plotly_click", (e) => {
@@ -151,6 +158,7 @@
             let closestOption = null;
             let closestDiff = Infinity;
             audioOptions.forEach(option => {
+              console.log(option.textContent)
               const audioTime = new Date(option.textContent.split("@")[1].split("(")[0].trim()).toISOString();
               const diff = new Date(timestamp) - new Date(audioTime);
               if (diff < closestDiff && diff >= 0) { // only consider future timestamps
@@ -159,8 +167,11 @@
               }
             });
             if (closestOption) {
-                audioSelect.value = closestOption.value;
-                audioSelect.dispatchEvent(new Event('change'));
+                // Only dispatch change event if the value is actually different
+                if (audioSelect.value !== closestOption.value) {
+                  audioSelect.value = closestOption.value;
+                  audioSelect.dispatchEvent(new Event('change'));
+                }
             }
             const path = data.image_path[index];
             if (!path) return;

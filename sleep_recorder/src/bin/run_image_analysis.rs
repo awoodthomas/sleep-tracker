@@ -1,8 +1,8 @@
 use std::env;
 
 use tracing::info;
-use sleep_recorder::audio_analysis::analyze_audio_entries;
 
+use sleep_recorder::image_analysis::analyze_motion;
 
 #[tokio::main]
 async fn main() {
@@ -15,5 +15,5 @@ async fn main() {
 
     
     info!("Starting sleep_recorder analysis");
-    analyze_audio_entries(&data_path, "sleep_data.h5", "2025-04-28_09-19-00").expect("Failed to analyze audio entries");
+    analyze_motion(&data_path, "sleep_data.h5", "2025-04-17_23-01-13").expect("Failed to analyze image motion");
 }

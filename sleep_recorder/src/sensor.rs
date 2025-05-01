@@ -3,6 +3,7 @@
 //! Audio recording is handled separately, because it is "polled" at a different rate than the other sensors.
 
 use ens160_aq::Ens160;
+use image::GrayImage;
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -13,7 +14,7 @@ use rscam::{Camera, Config};
 
 use std::{error::Error, time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH}};
 
-use crate::data::{SleepData, AudioRecording};
+use crate::data::{AudioRecording, CameraAndMotionResult, SleepData};
 
 /// Wrapper for the BME280 sensor, providing temperature, humidity, and pressure measurements.
 pub struct BME280Wrapper {
@@ -51,7 +52,9 @@ pub struct CameraWrapper {
     /// The camera instance used for capturing images.
     camera: Camera,
     /// The directory where captured images will be stored.
-    image_directory: String
+    image_directory: String,
+    /// The last image captured, used for motion analysis.
+    last_image: Option<GrayImage>
 }
 impl CameraWrapper {
     /// Creates a new instance of `CameraWrapper`.
@@ -84,7 +87,7 @@ impl CameraWrapper {
             ..Default::default()
         })?;
         std::fs::create_dir_all(image_directory)?;
-        Ok(Self { camera, image_directory: image_directory.to_string() })
+        Ok(Self { camera, image_directory: image_directory.to_string(), last_image: None})
     }
     /// Captures an image from the camera and saves it to the specified directory.
     /// 
@@ -94,19 +97,26 @@ impl CameraWrapper {
     /// 
     /// # Returns
     /// 
-    /// * `Option<String>` - A result containing the path to the saved image or None if an error occurs.
+    /// * `Result<CameraAndMotionResult>` - A result containing the path to the saved image and difference from the last image
     /// 
-    pub fn measure(&mut self, timestamp: &str) -> Option<String> {
-        let frame = self.camera.capture().map_err(|e| {
-            warn!("Camera capture error: {:?}", e);
-        }).ok()?;
+    pub fn measure(&mut self, timestamp: &str) -> Result<CameraAndMotionResult, Box<dyn Error>> {
+        let frame = self.camera.capture()?;
     
         let image_path = format!("{0}image_{timestamp}.jpg", self.image_directory);
-        std::fs::write(&image_path, &*frame).map_err(|e| {
-            warn!("Failed to save image: {:?}", e);
-        }).ok()?;
+        std::fs::write(&image_path, &*frame)?;
 
-        Some(image_path)
+        let image = image::load_from_memory(&frame)?;
+
+        let gray_image = image.to_luma8();
+
+        let mut motion = None;
+
+        if let Some(last_image) = &self.last_image {
+            motion = Some(crate::image_analysis::frame_difference(&gray_image, &last_image));
+        }
+        self.last_image = Some(gray_image);
+
+        return Ok(CameraAndMotionResult { image_path, motion });
     }
 }
 
@@ -398,8 +408,8 @@ impl SensorReader {
         if let Some(thermistor_measurement) = self.thermistor.measure() {
             builder = builder.with_thermistor_temp(thermistor_measurement);
         }
-        if let Some(image_path) = self.camera.measure(&timestamp.to_string()) {
-            builder = builder.with_image_path(image_path);
+        if let Ok(camera_result) = self.camera.measure(&timestamp.to_string()) {
+            builder = builder.with_camera_result(camera_result);
         }
 
         Ok(builder.build())
