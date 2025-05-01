@@ -60,7 +60,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
     let audio_recorder = Arc::new(
         AudioRecorder::new(
             &format!("{}/{}/audio/", data_path, &data_logger.lock().await.group_name),
-            Duration::from_secs(30),
+            Duration::from_secs(30*60),
             "plughw:1,0".to_string(),
         )?);
 
@@ -136,25 +136,25 @@ async fn audio_loop(
     data_logger: Arc<Mutex<SleepDataLogger>>,
     recorder: Arc<AudioRecorder>,
 ) {
-    let mut interval = tokio::time::interval(recorder.recording_time);
-    loop {
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                // TODO: save interrupted audio recording in the dataset
-                info!("audio_loop: shutdown");
-                break;
+    while !cancel.is_cancelled() {
+        // Start a cancellable recording
+        match recorder.async_audio_recording().await {
+            Ok(rec) => {
+                let path = rec.path.clone();
+                if let Ok(_) = data_logger.lock().await.add_audio_entry(rec) {
+                    info!("audio saved to {:?}", path);
+                }
             }
-            _ = interval.tick() => {
-                match recorder.async_audio_recording().await {
-                    Ok(rec) => {
-                        let path = rec.path.clone();
-                        if let Ok(_) = data_logger.lock().await.add_audio_entry(rec)   {
-                            info!("audio saved to {:?}", path);
-                        }
-                    }
-                    Err(e) => warn!("audio error: {}", e),
+            Err(e) => {
+                if cancel.is_cancelled() {
+                    info!("audio_loop: recording cancelled early: {e}");
+                    break;
+                } else {
+                    warn!("audio error: {e}");
                 }
             }
         }
     }
+
+    info!("audio_loop: shutdown complete");
 }

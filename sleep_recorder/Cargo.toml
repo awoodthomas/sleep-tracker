@@ -21,3 +21,4 @@ minimp3 = { git = "https://github.com/germangb/minimp3-rs", rev = "refs/pull/44/
 image = "0.25.6"
 imageproc = "0.25.0"
 ab_glyph = "0.2.29"
+nix = { version = "0.29.0", features = ["signal"] }

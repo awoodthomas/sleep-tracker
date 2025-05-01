@@ -1,12 +1,16 @@
 //! Module containing wrappers for various sensors used in the sleep recorder project.
 //! Most sensors are encapsulated within the SensorReader struct, which is responsible for initializing and measuring data from the sensors.
 //! Audio recording is handled separately, because it is "polled" at a different rate than the other sensors.
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+
 
 use ab_glyph::{FontArc, PxScale};
 use chrono::{Local, TimeZone};
 use ens160_aq::Ens160;
 use image::{GrayImage, ImageFormat, RgbImage};
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
+use nix::sys::signal::Signal;
 use tokio::process::Command;
 use tracing::{info, warn};
 
@@ -317,6 +321,8 @@ impl AudioRecorder {
         
         let filepath = format!("{}audio_{}.mp3", &self.audio_directory, timestamp);
 
+        let mut duration = self.recording_time;
+
         // spawn ffmpeg and wait asynchronously
         let mut child = Command::new("ffmpeg")
             .args([
@@ -333,13 +339,31 @@ impl AudioRecorder {
             .spawn()?;
 
         let status = child.wait().await?;
-        if !status.success() {
+           
+        // The program is stopped with CTRL-C - this is automatically passed down to the child process
+        // Could use nix crate to independently terminate the recording, but for now don't double up.       
+        // status.signal() only returns Some(sig) when the kernel terminated the process directly.
+        // FFmpeg catches the SIGINT/SIGTERM, finishes writing the file, then calls exit(255)
+        let early_exit = status.signal() == Some(Signal::SIGINT as i32) 
+            || status.signal() == Some(Signal::SIGTERM as i32) 
+            || status.code() == Some(255);
+
+        if !status.success() && !early_exit {
             return Err(format!("ffmpeg exited with {:?}", status).into());
+        }
+
+        if early_exit {
+            duration = Duration::from_secs(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)?
+                    .as_secs()
+                - timestamp);
+                info!("Received cancel signal, final audio segment is {:?} s", duration)
         }
 
         Ok(AudioRecording {
             path: filepath,
-            duration: self.recording_time,
+            duration,
             start_time_s: timestamp,
         })
     }
