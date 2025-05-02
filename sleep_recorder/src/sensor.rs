@@ -82,7 +82,8 @@ impl CameraWrapper {
     /// # Examples
     /// 
     /// ```no_run
-    /// let camera = CameraWrapper::new("/path/to/images/".to_string())
+    /// use sleep_recorder::sensor::CameraWrapper;
+    /// let camera = CameraWrapper::new("/path/to/images/")
     ///    .expect("Failed to initialize camera");
     /// ```
     /// 
@@ -127,7 +128,7 @@ impl CameraWrapper {
         let gray_image = image.to_luma8();
         let mut motion = None;
         if let Some(last_image) = &self.last_image {
-            motion = Some(crate::image_analysis::frame_difference(&gray_image, last_image));
+            motion = crate::image_analysis::frame_difference(&gray_image, last_image).ok();
         }
         self.last_image = Some(gray_image);
 
@@ -176,6 +177,7 @@ impl ENS160Wrapper {
     /// # Examples
     /// 
     /// ```no_run
+    /// use sleep_recorder::sensor::ENS160Wrapper;
     /// let ens160 = ENS160Wrapper::new(25.0, 50.0)
     ///    .expect("Failed to initialize ENS160");
     /// ```
@@ -239,6 +241,7 @@ impl ThermistorWrapper {
     /// # Examples
     /// 
     /// ```no_run
+    /// use sleep_recorder::sensor::ThermistorWrapper;
     /// let thermistor = ThermistorWrapper::new()
     ///    .expect("Failed to initialize thermistor");
     /// ```
@@ -401,7 +404,8 @@ impl SensorReader {
     /// # Examples
     ///
     /// ```no_run
-    /// let sensor_reader = SensorReader::new("/path/to/data")
+    /// use sleep_recorder::sensor::SensorReader;
+    /// let mut sensor_reader = SensorReader::new("/path/to/data", "2025-04-28_22-47-31")
     ///     .expect("Failed to initialize sensor reader");
     /// ```    
     #[tracing::instrument]
@@ -441,7 +445,8 @@ impl SensorReader {
     /// # Examples
     ///
     /// ```no_run
-    /// let mut sensor_reader = SensorReader::new("/path/to/data")
+    /// use sleep_recorder::sensor::SensorReader;
+    /// let mut sensor_reader = SensorReader::new("/path/to/data", "2025-04-28_22-47-31")
     ///     .expect("Failed to initialize sensor reader");
     /// let sleep_data = sensor_reader.measure()
     ///     .expect("Failed to collect sleep data");

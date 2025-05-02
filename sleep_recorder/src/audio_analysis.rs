@@ -16,7 +16,8 @@ use crate::data::H5AudioMetadata;
 /// * `group_name` - The name of the group in the HDF5 file containing the audio dataset.
 ///
 /// # Example
-/// ```
+/// ```no_run
+/// use sleep_recorder::audio_analysis::analyze_audio_entries;
 /// let result = analyze_audio_entries("/path/to/data", "sleep_data.h5", "2025-04-28_09-19-00").expect("Failed to analyze audio entries");
 /// ```
 /// 
@@ -72,7 +73,8 @@ pub fn analyze_audio_entries(data_path: &str, file_name: &str, group_name: &str)
 /// * `path` - The path to the MP3 file.
 ///
 /// # Example
-/// ```
+/// ```no_run
+/// use sleep_recorder::audio_analysis::decode_mp3;
 /// let samples = decode_mp3("/path/to/audio.mp3").expect("Failed to decode MP3 file");
 /// ```
 #[tracing::instrument(skip(path))]
@@ -109,12 +111,6 @@ pub fn decode_mp3(path: &str) -> Result<Vec<i16>, Box<dyn Error>> {
 /// * `samples` - A vector of audio samples.
 /// * `window_size_s` - The size of the window in seconds.
 ///
-/// # Example
-/// ```
-/// let samples = vec![1_i16, 2_i16, 3_i16];
-/// let window_size_s = 1;
-/// let volume_db = window_volume_dbfs(samples, window_size_s);
-/// ```
 #[tracing::instrument]
 fn window_volume_dbfs(samples: Vec<i16>, window_size_s: usize) -> Vec<f32> {
     const CHUNK: usize = 2048;
@@ -153,26 +149,59 @@ mod tests {
     const CHUNK: usize = 2048;
     const SAMPLE_RATE: usize = 48000;
 
-    // Test the window_volume_db function with a simple constant signal.
+    // Test the RMS function with a simple constant signal.
     #[test]
-    fn test_window_volume_db_constant_signal() {
-        // Create a signal with CHUNK * 24 samples, all with the value 0.5.
-        // This should generate exactly 24 RMS levels of 0.5 (one per chunk).
+    fn test_rms_norm_constant() {
+        let result = rms_normalized(&[2.0, 2.0, 2.0, 2.0]);
+
+        assert!((result - 2.0).abs() < 1e-5, "Expected near 2.0, got {}", result);
+    }
+
+    // Test the window_volume_db function with a simple constant low signal.
+    #[test]
+    fn test_window_volume_db_constant_low_signal() {
+        // Create a signal with CHUNK * 47 samples, all with the value 0.5.
+        // This should generate exactly 47 RMS levels of 0.5 (one per chunk).
         // With window_size_s = 1, chunks_per_time = 48000 / 2048 ≈ 23.
         // Then the smoothed vector is computed over windows of 23 values:
-        // There will be (24 - 23 + 1) = 2 averaged values, and each should be near 0.5.
-        let num_chunks = 24;
-        let samples = vec![1_i16; CHUNK * num_chunks];
+        // There will be floor(47 / 23) = 2 averaged values, and each should be ~-90dBFS.
+        let num_chunks = 47;
+        let value = 1;
+        let samples = vec![value; CHUNK * num_chunks];
         let window_size_s: usize = 1;
 
         let result = window_volume_dbfs(samples, window_size_s);
 
         // We expect two smoothed RMS values.
-        assert_eq!(result.len(), ((num_chunks * CHUNK) as f32 / (SAMPLE_RATE * window_size_s) as f32).ceil() as usize);
+        assert_eq!(result.len(), ((num_chunks * CHUNK) as f32 / (SAMPLE_RATE * window_size_s) as f32).floor() as usize);
+
+        let expected_val = 20.0_f32 * (value as f32 / i16::MAX as f32).log10();
 
         for &val in &result {
             // Allow some epsilon error for floating point differences.
-            assert!((val - 1.0).abs() < 1e-5, "Expected near 1.0, got {}", val);
+            assert!((val - expected_val).abs() < 1e-3, "Expected near {}, got {}", expected_val, val);
+        }
+    }
+
+    // Test the window_volume_db function with a simple constant high signal.
+    #[test]
+    fn test_window_volume_db_constant_high_signal() {
+        // Max signal should result in 0 dBFS
+        let num_chunks = 47;
+        let value = i16::MAX;
+        let samples = vec![value; CHUNK * num_chunks];
+        let window_size_s: usize = 1;
+
+        let result = window_volume_dbfs(samples, window_size_s);
+
+        // We expect two smoothed RMS values.
+        assert_eq!(result.len(), ((num_chunks * CHUNK) as f32 / (SAMPLE_RATE * window_size_s) as f32).floor() as usize);
+
+        let expected_val = 20.0_f32 * (value as f32 / i16::MAX as f32).log10();
+
+        for &val in &result {
+            // Allow some epsilon error for floating point differences.
+            assert!((val - expected_val).abs() < 1e-3, "Expected near 0.0, got {}", val);
         }
     }
 
@@ -189,8 +218,31 @@ mod tests {
 
         // We check that result is non-empty and values are within [0.0, 1.0].
         assert!(!result.is_empty());
+        println!("Result: {:?}", result);
         for rms in result {
-            assert!(rms >= 0.0 && rms <= total_samples as f32);
+            assert!(rms <= 0.0 && rms >= -10.0);
         }
     }
+
+    // Test decoding and windowed dB measurement with a controlled tone file.
+    // 0–10 seconds at -100 dBFS
+    // 10–20 seconds at -10 dBFS
+    // 20–25 seconds at -20 dBFS
+    // 25–35 seconds at -30 dBFS
+    // Expected results:
+    // Window 1 (0-10s): -100 dBFS
+    // Window 2 (10-20s): -10 dBFS
+    // Window 3 (20-30s): -23.633978952 dBFS
+    #[test]
+    fn test_decode_and_db_tone_file() {
+        const AUDIO_PATH: &str = "test_data/test_audio_48kHz.mp3";
+        let samples = decode_mp3(AUDIO_PATH).expect("Failed to decode MP3 file");
+        let volume_db = window_volume_dbfs(samples, 10);
+        println!("Volume dB: {:?}", volume_db);
+        assert_eq!(volume_db.len(), 3, "Expected 3 windows, got {}", volume_db.len());
+        assert!((volume_db[0] + 100.0).abs() < 10.0, "Expected -100 dBFS, got {}", volume_db[0]);
+        assert!((volume_db[1] + 10.0).abs() < 1.5, "Expected -10 dBFS, got {}", volume_db[1]);
+        assert!((volume_db[2] + 23.633978952).abs() < 1.5, "Expected -23.633978952 dBFS, got {}", volume_db[2]);
+    }
+
 }
