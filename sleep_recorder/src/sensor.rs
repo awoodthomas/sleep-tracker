@@ -336,6 +336,7 @@ impl AudioRecorder {
                 "-i", &self.device_id,
                 "-t", &self.recording_time.as_secs().to_string(),
                 "-ac", "1",
+                "-af", "afftdn=nr=12:nf=-50:tn=1",
                 "-acodec", "libmp3lame",
                 "-b:a", "128k",
                 "-y",
