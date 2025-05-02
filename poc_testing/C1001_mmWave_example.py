@@ -35,7 +35,7 @@ def setup():
        print("Sleep mode\n")
     else:
        print("read error\n")
-    hu.config_LED_light(HPLed, 1)
+    hu.config_LED_light(HPLed, 0)
     led_mode = hu.get_LED_light_state(HPLed)
     if led_mode == 0:
        print("off\n")
@@ -48,6 +48,7 @@ def setup():
 
   
 def loop():
+    time.sleep(1)
     print("Presence information:")
     hu_data = hu.sm_human_data(eHumanPresence)
     if hu_data == 0:
@@ -66,6 +67,9 @@ def loop():
        print("Active\n")
     else:
        print("read error\n")
+    print("Heart rate: ", hu.get_heart_rate())
+    print("Breathing state: ", hu.get_breathe_state())
+    print("Breathing value: ", hu.get_breathe_value())
      
 
 if __name__ == "__main__":

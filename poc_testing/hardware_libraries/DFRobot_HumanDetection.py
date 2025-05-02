@@ -113,7 +113,7 @@ eResidenceTime = 8
 class DFRobot_HumanDetection:
 
     def __init__(self):
-        self.ser = serial.Serial('/dev/ttyS0', 115200)
+        self.ser = serial.Serial('/dev/serial0', 115200, timeout=1)
 
 
     def begin(self):
@@ -734,91 +734,82 @@ class DFRobot_HumanDetection:
         return ret
 
     def _getData(self, con, cmd, length, senData):
-        timeStart = time.time()
-        state = CMD_WHITE
-        data = 0
-        _len = 0
-        count = 0
-        retData = bytearray(22 + length)
-        
-        cmdBuf = bytearray(20)
-        cmdBuf[0] = 0x53
-        cmdBuf[1] = 0x59
-        cmdBuf[2] = con
-        cmdBuf[3] = cmd
-        cmdBuf[4] = (length >> 8) & 0xff
-        cmdBuf[5] = length & 0xff
+        """
+        Exchange a command/response frame with the C1001.
+
+        * robust timeout / retry logic
+        * no Python‑2 `ord()` calls
+        * dynamically sized return buffer (no IndexError)
+        """
+        FRAME_TIMEOUT   = 1        # seconds before re‑sending the command
+        TOTAL_TIMEOUT   = TIME_OUT # keep the constant you defined (=5 s)
+
+        # ---------- build and send the command frame ----------
+        cmdBuf = bytearray(9 + length)
+        cmdBuf[0:2]      = b'\x53\x59'        # frame header “SY”
+        cmdBuf[2]        = con
+        cmdBuf[3]        = cmd
+        cmdBuf[4]        = (length >> 8) & 0xFF
+        cmdBuf[5]        =  length        & 0xFF
         cmdBuf[6:6+length] = senData
-        cmdBuf[6 + length] = self._sumData(6 + length, cmdBuf)
-        cmdBuf[7 + length] = 0x54
-        cmdBuf[8 + length] = 0x43
+        cmdBuf[6+length] = self._sumData(6 + length, cmdBuf)  # checksum
+        cmdBuf[7+length:9+length] = b'\x54\x43'               # frame tail “TC”
 
         self.ser.reset_input_buffer()
-        self.ser.write(cmdBuf[:9 + length])
+        self.ser.write(cmdBuf)
+
+        # ---------- parse incoming response ----------
+        start_time   = time.time()
+        last_tx_time = start_time
+        state        = CMD_WHITE
+        payload_len  = 0
+        count        = 0
+        frame        = bytearray()          # grow as needed ‑‑ no fixed length
 
         while True:
-            if(time.time() - timeStart) > 1:
-                self.ser.reset_output_buffer()
-                self.ser.reset_input_buffer()
-                self.ser.write(cmdBuf[:9 + length])
-                #timeStart = time.time()
+            # ----- 1. read any available byte -----
+            if self.ser.in_waiting:
+                byte = self.ser.read(1)[0]  # already an int in Py‑3
+                frame.append(byte)
 
-            if self.ser.in_waiting > 0:
-                data = self.ser.read(1)[0]
-                data = ord(data)
-                #print(data)
-                #timeStart = time.time()
-
-            if (time.time() - timeStart) > TIME_OUT:
-                time.sleep(0.05)
-                retData[0] = 0xf5
-                return retData
-
-            if state == CMD_WHITE:
-                if data == 0x53:
-                    retData[0] = data
-                    state = CMD_HEAD
+                if state == CMD_WHITE:
+                    if byte == 0x53:        # ‘S’
+                        state = CMD_HEAD
+                        frame = bytearray([byte])  # start a fresh frame
+                elif state == CMD_HEAD:
+                    state = CMD_CONFIG if byte == 0x59 else CMD_WHITE
+                elif state == CMD_CONFIG:
+                    state = CMD_CMD if byte == con else CMD_WHITE
+                elif state == CMD_CMD:
+                    state = CMD_LEN_H if byte == cmd else CMD_WHITE
+                elif state == CMD_LEN_H:
+                    payload_len = byte << 8
+                    state = CMD_LEN_L
+                elif state == CMD_LEN_L:
+                    payload_len |= byte
                     count = 0
-            elif state ==CMD_HEAD:
-                if data == 0x59:
-                    state = CMD_CONFIG
-                    retData[1] = data
-                else:
-                    state = CMD_WHITE
-            elif state == CMD_CONFIG:
-                if data == con:
-                    state = CMD_CMD
-                    retData[2] = data
-                else:
-                    state = CMD_WHITE
-            elif state == CMD_CMD:
-                if data == cmd:
-                    state = CMD_LEN_H
-                    retData[3] = data
-                else:
-                    state = CMD_WHITE
-            elif state == CMD_LEN_H:
-                retData[4] = data
-                _len = data << 8
-                state = CMD_LEN_L
-            elif state == CMD_LEN_L:
-                retData[5] = data
-                _len |= data
-                state = CMD_DATA
-            elif state == CMD_DATA:
-                if count < _len:
-                    retData[6 + count] = data
+                    state = CMD_DATA if payload_len else CMD_END_H
+                elif state == CMD_DATA:
                     count += 1
-                else:
-                    retData[6 + _len] = data
-                    state = CMD_END_H
-            elif state == CMD_END_H:
-                retData[7 + _len] = data
-                state = CMD_END_L
-            elif state == CMD_END_L:
-                retData[8 + _len] = data
-                time.sleep(0.05)
-                return retData
+                    if count >= payload_len:
+                        state = CMD_END_H
+                elif state == CMD_END_H:
+                    state = CMD_END_L
+                elif state == CMD_END_L:
+                    # got the full frame: header .. checksum .. 0x54 0x43
+                    return frame
+
+            # ----- 2. periodic command retry -----
+            now = time.time()
+            if now - last_tx_time > FRAME_TIMEOUT:
+                self.ser.write(cmdBuf)
+                last_tx_time = now
+
+            # ----- 3. overall timeout -----
+            if now - start_time > TOTAL_TIMEOUT:
+                # return a single 0xF5 byte just like the original code did
+                return bytearray([0xF5])
+
 
     def _sumData(self, length, buf):
         data = 0
