@@ -79,7 +79,11 @@
             makeTrace(data.co2eq_ppm, "CO2", "ppm"),
             makeTrace(data.tvoc_ppb, "TVOC", "ppb"),
             makeTrace(data.air_quality_index, "AQI", ""),
-            makeTrace(data.image_motion, "Motion", "")
+            makeTrace(data.image_motion, "Motion", ""),
+            makeTrace(data.mmwave_presence, "mmWave Presence", ""),
+            makeTrace(data.mmwave_motion, "mmWave Motion", ""),
+            makeTrace(data.mmwave_heart_rate_bpm, "mmWave Heart Rate", "bpm"),
+            makeTrace(data.mmwave_resp_rate_bpm, "mmWave Respiration Rate", "bpm"),
           ];
 
           function makeAudioTrace(timestamp, reltime, dB, label) {

@@ -16,6 +16,7 @@ use std::error::Error;
 use std::result::Result;
 
 use chrono::Local;
+use dfrobot_c1001::C1001SleepData;
 use hdf5::types::VarLenArray;
 use hdf5::Dataset;
 use hdf5::{types::VarLenUnicode, File, H5Type};
@@ -43,8 +44,16 @@ pub struct SleepData {
     pub thermistor_temp_c: f32,
     /// Path to the image file.
     pub image_path: String,
-    /// Quantification of image motion
+    /// Quantification of image motion.
     pub image_motion: f32,
+    /// Human presence as detected by mmWave sensor.
+    pub mmwave_presence: bool,
+    /// Motion as detected by mmWave sensor.
+    pub mmwave_movement: bool,
+    /// Heart rate [bpm] as detected by mmWave sensor.
+    pub mmwave_heart_rate_bpm: u16,
+    /// Respiration rate [bpm] as detected by mmWave sensor.
+    pub mmwave_resp_rate_bpm: u16,
 }
 impl SleepData {
     /// Creates a new `SleepDataBuilder` instance with the given timestamp.
@@ -70,7 +79,11 @@ pub struct SleepDataBuilder {
     air_quality_index: Option<u16>,
     thermistor_temp_c: Option<f32>,
     image_path: Option<String>,
-    image_motion: Option<f32>
+    image_motion: Option<f32>,
+    mmwave_presence: Option<bool>,
+    mmwave_movement: Option<bool>,
+    mmwave_heart_rate_bpm: Option<u16>,
+    mmwave_resp_rate_bpm: Option<u16>,
 }
 
 impl SleepDataBuilder {
@@ -106,6 +119,14 @@ impl SleepDataBuilder {
         self
     }
 
+    pub fn with_mmwave_result(mut self, mmwave_result: C1001SleepData) -> Self {
+        self.mmwave_presence = mmwave_result.presence;
+        self.mmwave_movement = mmwave_result.movement;
+        self.mmwave_heart_rate_bpm = mmwave_result.heart_rate_bpm;
+        self.mmwave_resp_rate_bpm = mmwave_result.resp_rate_bpm;
+        self
+    }
+
     pub fn build(self) -> SleepData {
         SleepData {
             timestamp_s: self.timestamp_s,
@@ -118,6 +139,10 @@ impl SleepDataBuilder {
             thermistor_temp_c: self.thermistor_temp_c.unwrap_or(f32::NAN),
             image_path: self.image_path.unwrap_or_default(),
             image_motion: self.image_motion.unwrap_or(f32::NAN),
+            mmwave_presence: self.mmwave_presence.unwrap_or_default(),
+            mmwave_movement: self.mmwave_movement.unwrap_or_default(),
+            mmwave_heart_rate_bpm: self.mmwave_heart_rate_bpm.unwrap_or_default(),
+            mmwave_resp_rate_bpm: self.mmwave_resp_rate_bpm.unwrap_or_default(),
         }
     }
 }
@@ -168,8 +193,9 @@ impl From<AudioRecording> for H5AudioMetadata {
 
 #[derive(Debug)]
 enum SleepField {
-    U64(fn(&SleepData) -> u64),
+    Bool(fn(&SleepData) -> bool),
     U16(fn(&SleepData) -> u16),
+    U64(fn(&SleepData) -> u64),
     F32(fn(&SleepData) -> f32),
     String(fn(&SleepData) -> VarLenUnicode),
 }
@@ -244,9 +270,15 @@ impl SleepDataLogger {
         data_map.insert("thermistor_temp", SleepField::F32(|d| d.thermistor_temp_c));
         data_map.insert("image_path", SleepField::String(|d| VarLenUnicode::from_str(&d.image_path).unwrap_or_default()));
         data_map.insert("image_motion", SleepField::F32(|d| d.image_motion));
+        data_map.insert("mmwave_presence", SleepField::Bool(|d| d.mmwave_presence));
+        data_map.insert("mmwave_movement", SleepField::Bool(|d| d.mmwave_movement));
+        data_map.insert("mmwave_heart_rate_bpm", SleepField::U16(|d| d.mmwave_heart_rate_bpm));
+        data_map.insert("mmwave_resp_rate_bpm", SleepField::U16(|d| d.mmwave_resp_rate_bpm));
+
     
         for (key, sleep_field) in data_map.iter() {
             match sleep_field {
+                SleepField::Bool(_) => Self::generate_dataset::<bool>(&group, key)?,
                 SleepField::U64(_) => Self::generate_dataset::<u64>(&group, key)?,
                 SleepField::U16(_) => Self::generate_dataset::<u16>(&group, key)?,
                 SleepField::F32(_) => Self::generate_dataset::<f32>(&group, key)?,
@@ -302,12 +334,16 @@ impl SleepDataLogger {
         // Collect data from buffer
         for (name, sleep_field) in self.data_map.iter() {
             match sleep_field {
-                SleepField::U64(f) => {
-                    let data: Vec<u64> = buffer.iter().map(f).collect();
+                SleepField::Bool(f) => {
+                    let data: Vec<bool> = buffer.iter().map(f).collect();
                     append_to_dataset(&group, name, &data)?;
                 }
                 SleepField::U16(f) => {
                     let data: Vec<u16> = buffer.iter().map(f).collect();
+                    append_to_dataset(&group, name, &data)?;
+                }
+                SleepField::U64(f) => {
+                    let data: Vec<u64> = buffer.iter().map(f).collect();
                     append_to_dataset(&group, name, &data)?;
                 }
                 SleepField::F32(f) => {

@@ -7,6 +7,7 @@ use std::os::unix::process::ExitStatusExt;
 
 use ab_glyph::{FontArc, PxScale};
 use chrono::{Local, TimeZone};
+use dfrobot_c1001::{Led, C1001};
 use ens160_aq::Ens160;
 use image::{GrayImage, ImageFormat, RgbImage};
 use mcp342x::{Channel, Gain, MCP342x, Resolution};
@@ -383,6 +384,8 @@ pub struct SensorReader {
     ens160: ENS160Wrapper,
     /// - Thermistor: Utilized for ADC-based temperature measurements.
     thermistor: ThermistorWrapper,
+    /// - C1001 mWave: radar sensor for presence, motion, heart rate, and respiration measurement
+    mm_wave: C1001,
     /// - Camera: Configured with a directory path derived from the provided data_path to store images.=
     camera: CameraWrapper,
 }
@@ -423,8 +426,14 @@ impl SensorReader {
 
         let camera = CameraWrapper::new(&format!("{}/{}/images/", data_path, group_name))?;            
         info!("Camera initialized successfully.");
+
+        let mut mm_wave = C1001::open("/dev/serial0", 115_200, Duration::from_millis(1000))?;
+        mm_wave.begin()?;
+        mm_wave.config_work_mode(dfrobot_c1001::Mode::Sleep)?;
+        mm_wave.set_led(Led::Sleep, false)?;
+        info!("mmWave sensor intialized successfully.");
         
-        Ok(Self { bme280, ens160, thermistor, camera })
+        Ok(Self { bme280, ens160, thermistor, mm_wave, camera })
     }
 
     /// Measures and returns SensorData.
@@ -469,6 +478,7 @@ impl SensorReader {
         if let Ok(camera_result) = self.camera.measure(timestamp) {
             builder = builder.with_camera_result(camera_result);
         }
+        builder = builder.with_mmwave_result(self.mm_wave.poll_sleep_data());
 
         Ok(builder.build())
     }

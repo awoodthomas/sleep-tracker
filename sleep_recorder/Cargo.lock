@@ -538,6 +538,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dfrobot_c1001"
+version = "0.1.0"
+dependencies = [
+ "serialport",
+ "thiserror 2.0.12",
+ "tracing",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1911,6 +1920,7 @@ dependencies = [
  "mach2",
  "nix 0.26.4",
  "scopeguard",
+ "serde",
  "unescaper",
  "winapi",
 ]
@@ -1975,6 +1985,7 @@ dependencies = [
  "bme280",
  "chrono",
  "dasp",
+ "dfrobot_c1001",
  "ens160-aq",
  "hdf5",
  "image",

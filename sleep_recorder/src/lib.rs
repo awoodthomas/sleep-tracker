@@ -61,7 +61,7 @@ pub async fn sleep_tracker(data_path: &str) -> Result<(), Box<dyn Error>> {
         AudioRecorder::new(
             &format!("{}/{}/audio/", data_path, &data_logger.lock().await.group_name),
             Duration::from_secs(30*60),
-            "plughw:1,0".to_string(),
+            "plughw:/dev/snd/by-id/usb-Arducam_Technology_Co.__Ltd._USB_Camera_SN0001-02".to_string(),
         )?);
 
     // 2) Spawn the sensor‐polling task

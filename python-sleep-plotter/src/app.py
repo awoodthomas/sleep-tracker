@@ -34,16 +34,32 @@ def get_data():
     if not group_name:
         return jsonify({"error": "Missing group parameter"}), 404
 
+    keys = ["timestamp", 
+    "temperature", 
+    "humidity", 
+    "co2eq_ppm", 
+    "tvoc_ppb", 
+    "air_quality_index", 
+    "thermistor_temp", 
+    "image_path", 
+    "image_motion",
+    "mmwave_presence",
+    "mmwave_movement",
+    "mmwave_heart_rate_bpm",
+    "mmwave_resp_rate_bpm"]
+
     try:
         with h5py.File(HDF5_PATH, "r") as f:
             group = f[group_name]
-            for key in ["timestamp", "temperature", "humidity", "co2eq_ppm", "tvoc_ppb", "air_quality_index", "thermistor_temp", "image_path", "image_motion"]:
+            for key in keys:
                 if key in group:
                     dataset = group[key]
                     if dataset.dtype.kind in {'u', 'i'}:
                         data[key] = dataset[:].astype(float).tolist()
                     elif dataset.dtype.kind == 'f':
                         data[key] = clean_nan_array(dataset[:])
+                    elif dataset.dtype.kind == 'b':
+                        data[key] = dataset[:].astype(bool).tolist()
                     else:
                         data[key] = dataset[:].astype(str).tolist()
             
